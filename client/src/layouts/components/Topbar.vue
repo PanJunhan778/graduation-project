@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useUserStore } from '@/store/user'
-import { ElMessageBox } from 'element-plus'
 import { SwitchButton } from '@element-plus/icons-vue'
 
 const userStore = useUserStore()

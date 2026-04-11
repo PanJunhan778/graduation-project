@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { getHomeDashboard } from '@/api/dashboard'
 import { exportSectionsToPdf, formatPdfTimestamp } from '@/utils/pdf'

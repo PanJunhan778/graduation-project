@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { getCompanyList, createCompany, createOwner, updateCompanyStatus } from '@/api/admin'
 import type { CompanyVO, CompanyCreateForm, OwnerCreateForm } from '@/types'

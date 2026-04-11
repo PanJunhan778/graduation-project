@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { LoginForm, RoleGuide } from '@/types'

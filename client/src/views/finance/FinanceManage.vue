@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Upload, Delete, Edit, Warning, Loading } from '@element-plus/icons-vue'
 import {
   getFinanceList,

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { getUserList, createStaff, updateUserStatus, resetPassword } from '@/api/user'
 import type { UserVO, StaffCreateForm, ResetPasswordForm } from '@/types'

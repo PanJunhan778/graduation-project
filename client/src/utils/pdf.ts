@@ -1,5 +1,3 @@
-import { ElLoading } from 'element-plus'
-
 export type PdfOrientation = 'portrait' | 'landscape'
 
 export interface PdfExportSection {
