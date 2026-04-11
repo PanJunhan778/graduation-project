@@ -1,0 +1,8 @@
+.codex/
+.cursor/
+.idea/
+.vscode/
+
+# OS/editor noise at workspace root
+Thumbs.db
+.DS_Store
