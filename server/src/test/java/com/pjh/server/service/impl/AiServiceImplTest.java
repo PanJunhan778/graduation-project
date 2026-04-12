@@ -14,40 +14,29 @@ import com.pjh.server.mapper.CompanyMapper;
 import com.pjh.server.service.AiHistoryService;
 import com.pjh.server.service.AiHitlService;
 import com.pjh.server.util.CurrentSessionService;
+import com.pjh.server.vo.AiChatTurnVO;
 import dev.ai4j.openai4j.OpenAiHttpException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.output.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.net.http.HttpTimeoutException;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -82,15 +71,6 @@ class AiServiceImplTest {
     @Mock
     private OpenAiChatModel chatModel;
 
-    @Mock
-    private ObjectProvider<OpenAiStreamingChatModel> streamingChatModelProvider;
-
-    @Mock
-    private OpenAiStreamingChatModel streamingChatModel;
-
-    @Mock
-    private Executor aiChatTaskExecutor;
-
     private AiServiceImpl aiService;
 
     @BeforeEach
@@ -103,51 +83,29 @@ class AiServiceImplTest {
                 aiPromptBuilder,
                 aiToolFacade,
                 aiProperties,
-                chatModelProvider,
-                streamingChatModelProvider,
-                aiChatTaskExecutor
+                chatModelProvider
         );
     }
 
     @Test
-    void streamChatShouldCaptureSessionContextBeforeAsyncExecution() {
+    void chatShouldReturnMessageResultAndPersistAssistantMessage() {
         stubCommonChatFlow();
-        streamChatWithPlainResponse("好的", List.of("好", "的"), new NoopSseEmitter());
+        when(chatModel.generate(any(List.class), any(List.class)))
+                .thenReturn(Response.from(AiMessage.from("你好")));
 
-        InOrder inOrder = inOrder(currentSessionService, aiChatTaskExecutor);
-        inOrder.verify(currentSessionService).requireCurrentCompanyId();
-        inOrder.verify(currentSessionService).requireCurrentUserId();
-        inOrder.verify(aiChatTaskExecutor).execute(any(Runnable.class));
+        AiChatTurnVO result = aiService.chat(buildRequest());
 
-        verify(currentSessionService, times(1)).requireCurrentCompanyId();
-        verify(currentSessionService, times(1)).requireCurrentUserId();
+        assertThat(result.getSessionId()).isEqualTo("session-1");
+        assertThat(result.getResultType()).isEqualTo(AiConstants.CHAT_RESULT_MESSAGE);
+        assertThat(result.getMessageId()).isEqualTo(102L);
+        assertThat(result.getMessageType()).isEqualTo(AiConstants.MESSAGE_TYPE_MARKDOWN);
+        assertThat(result.getContent()).isEqualTo("你好");
         verify(companyMapper).selectById(9L);
-    }
-
-    @Test
-    void streamChatShouldEmitThinkingTokensAndDoneForPlainResponse() {
-        CapturingSseEmitter emitter = new CapturingSseEmitter();
-        stubCommonChatFlow();
-
-        streamChatWithPlainResponse("你好", List.of("你", "好"), emitter);
-
-        assertThat(emitter.eventNames()).containsExactly(
-                AiConstants.SSE_EVENT_SESSION,
-                AiConstants.SSE_EVENT_THINKING,
-                AiConstants.SSE_EVENT_TOKEN,
-                AiConstants.SSE_EVENT_TOKEN,
-                AiConstants.SSE_EVENT_DONE
-        );
-        assertThat(emitter.payloads().get(1)).isEqualTo(Map.of("round", 1, "phase", AiConstants.THINKING_PHASE_MODEL_WAIT));
-        assertThat(emitter.payloads().get(2)).isEqualTo(Map.of("content", "你"));
-        assertThat(emitter.payloads().get(3)).isEqualTo(Map.of("content", "好"));
-        assertThat(emitter.payloads().get(4)).isEqualTo(Map.of("messageId", 102L, "content", "你好"));
         verify(aiHistoryService).createMessage(9L, 7L, "session-1", "assistant", AiConstants.MESSAGE_TYPE_MARKDOWN, "你好", null);
     }
 
     @Test
-    void streamChatShouldContinueStreamingAfterToolExecution() {
-        CapturingSseEmitter emitter = new CapturingSseEmitter();
+    void chatShouldContinueAfterToolExecutionAndReturnFinalMessage() {
         stubCommonChatFlow();
 
         ToolExecutionRequest request = ToolExecutionRequest.builder()
@@ -156,39 +114,21 @@ class AiServiceImplTest {
                 .arguments("{\"type\":\"expense\"}")
                 .build();
 
-        doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            StreamingResponseHandler<AiMessage> handler = invocation.getArgument(2);
-            handler.onComplete(Response.from(AiMessage.from(List.of(request))));
-            return null;
-        }).doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            StreamingResponseHandler<AiMessage> handler = invocation.getArgument(2);
-            handler.onNext("处理");
-            handler.onNext("完成");
-            handler.onComplete(Response.from(AiMessage.from("处理完成")));
-            return null;
-        }).when(streamingChatModel).generate(any(List.class), any(List.class), any(StreamingResponseHandler.class));
-
+        when(chatModel.generate(any(List.class), any(List.class)))
+                .thenReturn(Response.from(AiMessage.from(List.of(request))))
+                .thenReturn(Response.from(AiMessage.from("处理完成")));
         when(aiToolFacade.execute(9L, request)).thenReturn(AiToolExecutionOutcome.result("{\"total\":123.45}"));
 
-        aiService.streamChat(buildRequest(), emitter);
+        AiChatTurnVO result = aiService.chat(buildRequest());
 
-        assertThat(emitter.eventNames()).containsExactly(
-                AiConstants.SSE_EVENT_SESSION,
-                AiConstants.SSE_EVENT_THINKING,
-                AiConstants.SSE_EVENT_THINKING,
-                AiConstants.SSE_EVENT_TOKEN,
-                AiConstants.SSE_EVENT_TOKEN,
-                AiConstants.SSE_EVENT_DONE
-        );
+        assertThat(result.getResultType()).isEqualTo(AiConstants.CHAT_RESULT_MESSAGE);
+        assertThat(result.getContent()).isEqualTo("处理完成");
         verify(aiToolFacade).execute(9L, request);
         verify(aiHistoryService).createMessage(9L, 7L, "session-1", "assistant", AiConstants.MESSAGE_TYPE_MARKDOWN, "处理完成", null);
     }
 
     @Test
-    void streamChatShouldEmitActionRequiredWithoutAssistantDoneMessage() {
-        CapturingSseEmitter emitter = new CapturingSseEmitter();
+    void chatShouldReturnActionRequiredWithoutPersistingAssistantMessage() {
         stubCommonChatFlow();
 
         ToolExecutionRequest request = ToolExecutionRequest.builder()
@@ -197,12 +137,8 @@ class AiServiceImplTest {
                 .arguments("{\"newDescription\":\"新业务\"}")
                 .build();
 
-        doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            StreamingResponseHandler<AiMessage> handler = invocation.getArgument(2);
-            handler.onComplete(Response.from(AiMessage.from(List.of(request))));
-            return null;
-        }).when(streamingChatModel).generate(any(List.class), any(List.class), any(StreamingResponseHandler.class));
+        when(chatModel.generate(any(List.class), any(List.class)))
+                .thenReturn(Response.from(AiMessage.from(List.of(request))));
 
         when(aiToolFacade.execute(9L, request)).thenReturn(AiToolExecutionOutcome.pendingUpdate("新业务"));
 
@@ -214,13 +150,10 @@ class AiServiceImplTest {
         payload.setConfirmToken("token-1");
         when(aiHitlService.createCompanyDescriptionPendingAction(9L, 7L, "session-1", "旧业务", "新业务")).thenReturn(payload);
 
-        aiService.streamChat(buildRequest(), emitter);
+        AiChatTurnVO result = aiService.chat(buildRequest());
 
-        assertThat(emitter.eventNames()).containsExactly(
-                AiConstants.SSE_EVENT_SESSION,
-                AiConstants.SSE_EVENT_THINKING,
-                AiConstants.MESSAGE_TYPE_ACTION_REQUIRED
-        );
+        assertThat(result.getResultType()).isEqualTo(AiConstants.CHAT_RESULT_ACTION_REQUIRED);
+        assertThat(result.getActionRequired()).isSameAs(payload);
         verify(aiHistoryService, never()).createMessage(eq(9L), eq(7L), eq("session-1"), eq("assistant"), eq(AiConstants.MESSAGE_TYPE_MARKDOWN), any(), eq(null));
     }
 
@@ -263,6 +196,16 @@ class AiServiceImplTest {
     }
 
     @Test
+    void buildErrorPayloadShouldExplainToolCompatibilityErrors() {
+        AiServiceImpl.AiErrorPayload payload = aiService.buildErrorPayload(
+                new ClassCastException("class java.util.ImmutableCollections$List12 cannot be cast to class [Ljava.lang.Object;")
+        );
+
+        assertThat(payload.code()).isEqualTo(500);
+        assertThat(payload.message()).isEqualTo("AI 工具参数配置不兼容，请检查工具定义");
+    }
+
+    @Test
     void buildErrorPayloadShouldFallbackForUnexpectedErrors() {
         AiServiceImpl.AiErrorPayload payload = aiService.buildErrorPayload(new RuntimeException("boom"));
 
@@ -297,35 +240,15 @@ class AiServiceImplTest {
         when(aiProperties.getApiKey()).thenReturn("test-key");
         when(aiProperties.getBaseUrl()).thenReturn("https://example.com");
         when(aiProperties.getModel()).thenReturn("qwen3.5-flash");
-        when(streamingChatModelProvider.getIfAvailable()).thenReturn(streamingChatModel);
-        when(streamingChatModel.modelName()).thenReturn("qwen3.5-flash");
+        when(chatModelProvider.getIfAvailable()).thenReturn(chatModel);
+        when(chatModel.modelName()).thenReturn("qwen3.5-flash");
         when(companyMapper.selectById(9L)).thenReturn(company);
         when(aiHistoryService.loadRecentConversation(9L, 7L, "session-1", AiConstants.CHAT_MEMORY_WINDOW_ROUNDS)).thenReturn(List.of());
         when(aiPromptBuilder.buildChatMessages(company, Constants.ROLE_OWNER, List.of(), "hello")).thenReturn(List.<ChatMessage>of());
         when(aiToolFacade.toolSpecifications()).thenReturn(List.of());
         when(aiHistoryService.createMessage(9L, 7L, "session-1", "user", AiConstants.MESSAGE_TYPE_TEXT, "hello", null)).thenReturn(userLog);
         lenient().when(aiHistoryService.createMessage(9L, 7L, "session-1", "assistant", AiConstants.MESSAGE_TYPE_MARKDOWN, "你好", null)).thenReturn(assistantLog);
-        lenient().when(aiHistoryService.createMessage(9L, 7L, "session-1", "assistant", AiConstants.MESSAGE_TYPE_MARKDOWN, "好的", null)).thenReturn(assistantLog);
         lenient().when(aiHistoryService.createMessage(9L, 7L, "session-1", "assistant", AiConstants.MESSAGE_TYPE_MARKDOWN, "处理完成", null)).thenReturn(assistantLog);
-        doAnswer(invocation -> {
-            Runnable runnable = invocation.getArgument(0);
-            runnable.run();
-            return null;
-        }).when(aiChatTaskExecutor).execute(any(Runnable.class));
-    }
-
-    private void streamChatWithPlainResponse(String finalText, List<String> tokens, SseEmitter emitter) {
-        doAnswer(invocation -> {
-            @SuppressWarnings("unchecked")
-            StreamingResponseHandler<AiMessage> handler = invocation.getArgument(2);
-            for (String token : tokens) {
-                handler.onNext(token);
-            }
-            handler.onComplete(Response.from(AiMessage.from(finalText)));
-            return null;
-        }).when(streamingChatModel).generate(any(List.class), any(List.class), any(StreamingResponseHandler.class));
-
-        aiService.streamChat(buildRequest(), emitter);
     }
 
     private AiChatRequestDTO buildRequest() {
@@ -335,41 +258,4 @@ class AiServiceImplTest {
         return dto;
     }
 
-    private static class NoopSseEmitter extends SseEmitter {
-
-        @Override
-        public synchronized void send(SseEventBuilder builder) {
-            // no-op for unit tests
-        }
-    }
-
-    private static class CapturingSseEmitter extends SseEmitter {
-
-        private final List<String> eventNames = new ArrayList<>();
-        private final List<Object> payloads = new ArrayList<>();
-
-        @Override
-        public synchronized void send(SseEventBuilder builder) throws IOException {
-            String eventName = null;
-            Object payload = null;
-            for (ResponseBodyEmitter.DataWithMediaType dataWithMediaType : builder.build()) {
-                Object data = dataWithMediaType.getData();
-                if (data instanceof String text && text.startsWith("event:")) {
-                    eventName = text.substring("event:".length()).split("\\R", 2)[0].trim();
-                } else if (!(data instanceof String)) {
-                    payload = data;
-                }
-            }
-            eventNames.add(eventName);
-            payloads.add(payload);
-        }
-
-        List<String> eventNames() {
-            return eventNames;
-        }
-
-        List<Object> payloads() {
-            return payloads;
-        }
-    }
 }

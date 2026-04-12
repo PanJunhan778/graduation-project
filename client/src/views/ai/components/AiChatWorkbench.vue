@@ -3,19 +3,16 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import {
+  chatAi,
   confirmAiAction,
   deleteAiSession,
   listAiMessages,
   listAiSessions,
-  streamAiChat,
 } from '@/api/ai'
 import type {
   AiActionMetadata,
-  AiActionRequiredPayload,
   AiChatMessageVO,
-  AiDoneEventPayload,
   AiSessionVO,
-  AiTokenEventPayload,
 } from '@/types'
 import {
   Delete,
@@ -24,7 +21,6 @@ import {
   Plus,
   Promotion,
   RefreshRight,
-  VideoPause,
 } from '@element-plus/icons-vue'
 
 const markdown = new MarkdownIt({
@@ -174,7 +170,6 @@ async function handleSendMessage() {
     createTime: new Date().toISOString(),
   }
 
-  let assistantPlaceholder: AiChatMessageVO | null = null
   let resolvedSessionId = activeSessionId.value
 
   messages.value.push(userMessage)
@@ -185,61 +180,36 @@ async function handleSendMessage() {
   streamAbortController.value = abortController
 
   try {
-    await streamAiChat(
+    const res = await chatAi(
       {
         sessionId: activeSessionId.value || undefined,
         message: text,
       },
-      {
-        onSession: ({ sessionId }) => {
-          resolvedSessionId = sessionId
-          if (!activeSessionId.value) {
-            activeSessionId.value = sessionId
-          }
-        },
-        onToken: (payload: AiTokenEventPayload) => {
-          if (!assistantPlaceholder) {
-            assistantPlaceholder = createAssistantPlaceholder()
-            messages.value.push(assistantPlaceholder)
-          }
-          assistantPlaceholder.content += payload.content
-        },
-        onDone: async (payload: AiDoneEventPayload) => {
-          if (!assistantPlaceholder) {
-            assistantPlaceholder = createAssistantPlaceholder()
-            messages.value.push(assistantPlaceholder)
-          }
-          assistantPlaceholder.id = payload.messageId
-          assistantPlaceholder.content = payload.content
-          await refreshSessions(resolvedSessionId)
-        },
-        onActionRequired: async (payload: AiActionRequiredPayload) => {
-          const actionMessage: AiChatMessageVO = {
-            id: -payload.actionId,
-            role: 'assistant',
-            messageType: 'action_required',
-            content: 'AI 请求更新企业档案',
-            metadata: {
-              actionId: payload.actionId,
-              toolName: payload.toolName,
-              oldValue: payload.oldValue,
-              proposedValue: payload.proposedValue,
-              confirmToken: payload.confirmToken,
-              status: 'pending',
-            },
-            createTime: new Date().toISOString(),
-          }
-          messages.value.push(actionMessage)
-          await refreshSessions(resolvedSessionId)
-        },
-      },
       abortController.signal,
     )
-  } catch (error) {
-    messages.value = messages.value.filter(
-      (item) => item.id !== userMessage.id && item.id !== assistantPlaceholder?.id,
-    )
 
+    const turn = res.data
+    resolvedSessionId = turn.sessionId
+    if (!activeSessionId.value) {
+      activeSessionId.value = turn.sessionId
+    }
+
+    if (turn.resultType === 'action_required' && turn.actionRequired) {
+      await loadMessages(turn.sessionId)
+      await refreshSessions(turn.sessionId, { reloadMessages: false })
+      return
+    }
+
+    messages.value.push({
+      id: turn.messageId || -(Date.now() + Math.floor(Math.random() * 1000)),
+      role: 'assistant',
+      messageType: turn.messageType || 'markdown',
+      content: turn.content || '',
+      metadata: null,
+      createTime: new Date().toISOString(),
+    })
+    await refreshSessions(resolvedSessionId, { reloadMessages: false })
+  } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) {
       ElMessage.error(error instanceof Error ? error.message : 'AI 服务暂时不可用')
     }
@@ -327,17 +297,6 @@ function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     void handleSendMessage()
-  }
-}
-
-function createAssistantPlaceholder(): AiChatMessageVO {
-  return {
-    id: -(Date.now() + Math.floor(Math.random() * 1000)),
-    role: 'assistant',
-    messageType: 'markdown',
-    content: '',
-    metadata: null,
-    createTime: new Date().toISOString(),
   }
 }
 
@@ -596,20 +555,10 @@ function scrollToBottom() {
 
           <div class="composer-actions">
             <el-button
-              v-if="isStreaming"
-              circle
-              :title="'停止生成'"
-              @click="stopStreaming"
-            >
-              <el-icon><VideoPause /></el-icon>
-            </el-button>
-
-            <el-button
-              v-else
               type="primary"
               circle
               :title="'发送消息'"
-              :disabled="!inputMessage.trim()"
+              :disabled="!inputMessage.trim() || isStreaming"
               @click="handleSendMessage"
             >
               <el-icon><Promotion /></el-icon>

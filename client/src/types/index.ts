@@ -371,24 +371,6 @@ export interface AiChatTurnVO {
   actionRequired?: AiActionRequiredPayload
 }
 
-export interface AiSessionEventPayload {
-  sessionId: string
-}
-
-export interface AiTokenEventPayload {
-  content: string
-}
-
-export interface AiThinkingEventPayload {
-  round: number
-  phase: 'model_wait'
-}
-
-export interface AiDoneEventPayload {
-  messageId: number
-  content: string
-}
-
 export interface AiActionRequiredPayload {
   actionId: number
   toolName: string

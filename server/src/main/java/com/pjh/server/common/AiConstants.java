@@ -13,13 +13,6 @@ public final class AiConstants {
     public static final String CHAT_RESULT_MESSAGE = "message";
     public static final String CHAT_RESULT_ACTION_REQUIRED = "action_required";
 
-    public static final String SSE_EVENT_SESSION = "session";
-    public static final String SSE_EVENT_TOKEN = "token";
-    public static final String SSE_EVENT_DONE = "done";
-    public static final String SSE_EVENT_ERROR = "error";
-    public static final String SSE_EVENT_THINKING = "thinking";
-    public static final String THINKING_PHASE_MODEL_WAIT = "model_wait";
-
     public static final String ACTION_TYPE_UPDATE_COMPANY_DESCRIPTION = "update_company_description";
 
     public static final String ACTION_STATUS_PENDING = "pending";

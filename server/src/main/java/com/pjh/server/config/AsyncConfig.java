@@ -26,17 +26,6 @@ public class AsyncConfig implements AsyncConfigurer {
         return executor;
     }
 
-    @Bean("aiChatTaskExecutor")
-    public Executor aiChatTaskExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(6);
-        executor.setQueueCapacity(100);
-        executor.setThreadNamePrefix("ems-ai-chat-");
-        executor.initialize();
-        return executor;
-    }
-
     @Override
     public Executor getAsyncExecutor() {
         return auditLogTaskExecutor();

@@ -1,17 +1,11 @@
 import request from '@/api/request'
-import { getToken } from '@/utils/auth'
 import type {
-  AiActionRequiredPayload,
   AiChatMessageVO,
   AiChatRequest,
   AiChatTurnVO,
   AiConfirmActionRequest,
   AiConfirmActionVO,
-  AiDoneEventPayload,
-  AiSessionEventPayload,
   AiSessionVO,
-  AiThinkingEventPayload,
-  AiTokenEventPayload,
 } from '@/types'
 
 export function listAiSessions() {
@@ -35,137 +29,4 @@ export function chatAi(payload: AiChatRequest, signal?: AbortSignal) {
     signal,
     timeout: 120000,
   })
-}
-
-export interface AiStreamCallbacks {
-  onSession?: (payload: AiSessionEventPayload) => void
-  onThinking?: (payload: AiThinkingEventPayload) => void
-  onToken?: (payload: AiTokenEventPayload) => void
-  onDone?: (payload: AiDoneEventPayload) => void
-  onActionRequired?: (payload: AiActionRequiredPayload) => void
-}
-
-export async function streamAiChat(
-  payload: AiChatRequest,
-  callbacks: AiStreamCallbacks,
-  signal?: AbortSignal,
-) {
-  const res = await chatAi(payload, signal)
-  const turn = res.data
-
-  callbacks.onSession?.({ sessionId: turn.sessionId })
-
-  if (turn.resultType === 'action_required' && turn.actionRequired) {
-    callbacks.onActionRequired?.(turn.actionRequired)
-    return
-  }
-
-  if (turn.content) {
-    callbacks.onThinking?.({ round: 1, phase: 'model_wait' })
-    callbacks.onToken?.({ content: turn.content })
-  }
-
-  callbacks.onDone?.({
-    messageId: turn.messageId || 0,
-    content: turn.content || '',
-  })
-  return
-
-  const token = getToken()
-  const response = await fetch('/api/ai/chat', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(payload),
-    signal,
-  })
-
-  if (!response.ok) {
-    throw new Error(`AI 请求失败（HTTP ${response.status}）`)
-  }
-
-  const contentType = response.headers.get('content-type') || ''
-  if (!contentType.includes('text/event-stream')) {
-    const fallback = await response.json().catch(() => null)
-    throw new Error(fallback?.message || 'AI 服务返回了无效响应')
-  }
-
-  if (!response.body) {
-    throw new Error('AI 流式响应不可用')
-  }
-
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder('utf-8')
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) {
-      break
-    }
-    buffer += decoder.decode(value, { stream: true })
-    buffer = consumeEventBuffer(buffer, callbacks)
-  }
-
-  if (buffer.trim()) {
-    consumeEventBuffer(`${buffer}\n\n`, callbacks)
-  }
-}
-
-function consumeEventBuffer(buffer: string, callbacks: AiStreamCallbacks) {
-  let rest = buffer
-
-  while (true) {
-    const separatorIndex = rest.indexOf('\n\n')
-    if (separatorIndex === -1) {
-      return rest
-    }
-
-    const block = rest.slice(0, separatorIndex).trim()
-    rest = rest.slice(separatorIndex + 2)
-    if (!block) {
-      continue
-    }
-
-    let eventName = 'message'
-    const dataLines: string[] = []
-
-    for (const line of block.split('\n')) {
-      if (line.startsWith('event:')) {
-        eventName = line.slice(6).trim()
-      } else if (line.startsWith('data:')) {
-        dataLines.push(line.slice(5).trim())
-      }
-    }
-
-    const rawData = dataLines.join('\n')
-    const payload = rawData ? JSON.parse(rawData) : {}
-    dispatchEvent(eventName, payload, callbacks)
-  }
-}
-
-function dispatchEvent(eventName: string, payload: unknown, callbacks: AiStreamCallbacks) {
-  switch (eventName) {
-    case 'session':
-      callbacks.onSession?.(payload as AiSessionEventPayload)
-      break
-    case 'thinking':
-      callbacks.onThinking?.(payload as AiThinkingEventPayload)
-      break
-    case 'token':
-      callbacks.onToken?.(payload as AiTokenEventPayload)
-      break
-    case 'done':
-      callbacks.onDone?.(payload as AiDoneEventPayload)
-      break
-    case 'action_required':
-      callbacks.onActionRequired?.(payload as AiActionRequiredPayload)
-      break
-    case 'error':
-      throw new Error((payload as { message?: string })?.message || 'AI 服务暂时不可用')
-    default:
-      break
-  }
 }

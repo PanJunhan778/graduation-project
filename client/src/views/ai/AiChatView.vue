@@ -6,16 +6,16 @@ import DOMPurify from 'dompurify'
 import {
   listAiMessages,
   listAiSessions,
-  streamAiChat,
+  legacyChatApi,
   confirmAiAction,
 } from '@/api/ai'
 import type {
   AiActionMetadata,
   AiActionRequiredPayload,
   AiChatMessageVO,
-  AiDoneEventPayload,
+  LegacyDonePayload,
   AiSessionVO,
-  AiTokenEventPayload,
+  LegacyTokenPayload,
 } from '@/types'
 import {
   ChatDotRound,
@@ -160,7 +160,7 @@ async function handleSendMessage() {
   streamAbortController.value = abortController
 
   try {
-    await streamAiChat(
+    await legacyChatApi(
       {
         sessionId: activeSessionId.value || undefined,
         message: text,
@@ -172,14 +172,14 @@ async function handleSendMessage() {
             activeSessionId.value = sessionId
           }
         },
-        onToken: (payload: AiTokenEventPayload) => {
+        onToken: (payload: LegacyTokenPayload) => {
           if (!assistantPlaceholder) {
             assistantPlaceholder = createAssistantPlaceholder()
             messages.value.push(assistantPlaceholder)
           }
           assistantPlaceholder.content += payload.content
         },
-        onDone: async (payload: AiDoneEventPayload) => {
+        onDone: async (payload: LegacyDonePayload) => {
           if (!assistantPlaceholder) {
             assistantPlaceholder = createAssistantPlaceholder()
             messages.value.push(assistantPlaceholder)
