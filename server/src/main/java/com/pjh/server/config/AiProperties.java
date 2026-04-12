@@ -17,5 +17,7 @@ public class AiProperties {
 
     private String model = "qwen3.5-flash";
 
+    private String tokenizerModel;
+
     private Duration timeout = Duration.ofSeconds(60);
 }

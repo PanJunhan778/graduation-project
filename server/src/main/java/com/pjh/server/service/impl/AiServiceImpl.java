@@ -17,6 +17,7 @@ import com.pjh.server.service.AiHitlService;
 import com.pjh.server.service.AiService;
 import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.AiChatMessageVO;
+import com.pjh.server.vo.AiChatTurnVO;
 import com.pjh.server.vo.AiConfirmActionVO;
 import com.pjh.server.vo.AiSessionVO;
 import dev.ai4j.openai4j.OpenAiHttpException;
@@ -25,7 +26,9 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -63,10 +66,97 @@ public class AiServiceImpl implements AiService {
     private final AiToolFacade aiToolFacade;
     private final AiProperties aiProperties;
     private final ObjectProvider<OpenAiChatModel> chatModelProvider;
+    private final ObjectProvider<OpenAiStreamingChatModel> streamingChatModelProvider;
     @Qualifier("aiChatTaskExecutor")
     private final Executor aiChatTaskExecutor;
 
     @Override
+    public AiChatTurnVO chat(AiChatRequestDTO dto) {
+        AiChatContext context = new AiChatContext(
+                currentSessionService.requireCurrentCompanyId(),
+                currentSessionService.requireCurrentUserId(),
+                normalizeSessionId(dto.getSessionId())
+        );
+
+        try {
+            validateAiAvailability();
+            log.info(
+                    "Starting AI chat: sessionId={}, companyId={}, userId={}, model={}",
+                    context.sessionId(),
+                    context.companyId(),
+                    context.userId(),
+                    aiProperties.getModel()
+            );
+
+            Long companyId = context.companyId();
+            Long userId = context.userId();
+            String sessionId = context.sessionId();
+
+            Company company = companyMapper.selectById(companyId);
+            if (company == null) {
+                throw new BusinessException("当前企业不存在");
+            }
+
+            List<ChatMessage> history = aiHistoryService.loadRecentConversation(
+                    companyId,
+                    userId,
+                    sessionId,
+                    AiConstants.CHAT_MEMORY_WINDOW_ROUNDS
+            );
+            log.debug("Loaded AI conversation history: sessionId={}, messageCount={}", sessionId, history.size());
+
+            var userLog = aiHistoryService.createMessage(
+                    companyId,
+                    userId,
+                    sessionId,
+                    "user",
+                    AiConstants.MESSAGE_TYPE_TEXT,
+                    dto.getMessage(),
+                    null
+            );
+            log.debug("Stored user AI message: sessionId={}, messageId={}", sessionId, userLog.getId());
+
+            List<ChatMessage> messages = aiPromptBuilder.buildChatMessages(
+                    company,
+                    Constants.ROLE_OWNER,
+                    history,
+                    dto.getMessage()
+            );
+            ChatExecutionResult executionResult = executeChatLoopSync(messages, company, companyId, userId, sessionId);
+
+            if (executionResult.actionRequired() != null) {
+                log.info(
+                        "AI chat entered HITL flow: sessionId={}, actionId={}",
+                        sessionId,
+                        executionResult.actionRequired().getActionId()
+                );
+                return buildActionRequiredResult(sessionId, executionResult.actionRequired());
+            }
+
+            String finalText = normalizeAssistantText(executionResult.finalText());
+            var assistantLog = aiHistoryService.createMessage(
+                    companyId,
+                    userId,
+                    sessionId,
+                    "assistant",
+                    AiConstants.MESSAGE_TYPE_MARKDOWN,
+                    finalText,
+                    null
+            );
+            log.debug(
+                    "Stored assistant AI message: sessionId={}, messageId={}, length={}",
+                    sessionId,
+                    assistantLog.getId(),
+                    finalText.length()
+            );
+            return buildMessageResult(sessionId, assistantLog.getId(), finalText);
+        } catch (Exception e) {
+            logChatFailure(context, "chat", e);
+            AiErrorPayload payload = buildErrorPayload(e);
+            throw new BusinessException(payload.code(), payload.message());
+        }
+    }
+
     public void streamChat(AiChatRequestDTO dto, SseEmitter emitter) {
         AiChatContext context = new AiChatContext(
                 currentSessionService.requireCurrentCompanyId(),
@@ -81,6 +171,133 @@ public class AiServiceImpl implements AiService {
                     sendError(emitter, context, exception);
                     return null;
                 });
+    }
+
+    private ChatExecutionResult executeChatLoopSync(List<ChatMessage> initialMessages, Company company,
+                                                    Long companyId, Long userId, String sessionId) {
+        OpenAiChatModel chatModel = chatModelProvider.getIfAvailable();
+        if (chatModel == null) {
+            throw new BusinessException("AI 模型未初始化，请先检查 app.ai 配置");
+        }
+
+        List<ChatMessage> messages = new ArrayList<>(initialMessages);
+        List<ToolSpecification> toolSpecifications = aiToolFacade.toolSpecifications();
+
+        for (int round = 0; round < AiConstants.CHAT_MAX_TOOL_ROUNDS; round++) {
+            int roundNumber = round + 1;
+            Response<AiMessage> response = invokeChatModelRound(
+                    chatModel,
+                    messages,
+                    toolSpecifications,
+                    sessionId,
+                    companyId,
+                    userId,
+                    roundNumber
+            );
+            AiMessage aiMessage = response.content();
+            if (aiMessage == null) {
+                throw new BusinessException("AI 没有返回有效内容，请稍后重试");
+            }
+
+            if (aiMessage.hasToolExecutionRequests()) {
+                messages.add(aiMessage);
+                log.info(
+                        "AI requested tool execution: sessionId={}, round={}, toolCount={}",
+                        sessionId,
+                        roundNumber,
+                        aiMessage.toolExecutionRequests().size()
+                );
+                for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
+                    AiToolExecutionOutcome outcome;
+                    try {
+                        log.debug("Executing AI tool: sessionId={}, toolName={}", sessionId, request.name());
+                        outcome = aiToolFacade.execute(companyId, request);
+                    } catch (Exception e) {
+                        log.error(
+                                "AI tool execution failed: sessionId={}, companyId={}, userId={}, toolName={}",
+                                sessionId,
+                                companyId,
+                                userId,
+                                request.name(),
+                                e
+                        );
+                        throw e;
+                    }
+                    if (outcome.requiresCompanyDescriptionUpdate()) {
+                        String oldValue = company.getDescription() == null ? "" : company.getDescription();
+                        AiActionRequiredPayload actionRequired = aiHitlService.createCompanyDescriptionPendingAction(
+                                companyId,
+                                userId,
+                                sessionId,
+                                oldValue,
+                                outcome.pendingCompanyDescription()
+                        );
+                        return ChatExecutionResult.actionRequired(actionRequired);
+                    }
+                    messages.add(ToolExecutionResultMessage.from(request, outcome.resultJson()));
+                }
+                continue;
+            }
+
+            log.info(
+                    "AI model response ready: sessionId={}, round={}, responseLength={}",
+                    sessionId,
+                    roundNumber,
+                    aiMessage.text() == null ? 0 : aiMessage.text().length()
+            );
+            return ChatExecutionResult.finalText(aiMessage.text());
+        }
+
+        throw new BusinessException("AI 推理轮次超限，请换个问法后重试");
+    }
+
+    private Response<AiMessage> invokeChatModelRound(OpenAiChatModel chatModel,
+                                                     List<ChatMessage> messages,
+                                                     List<ToolSpecification> toolSpecifications,
+                                                     String sessionId,
+                                                     Long companyId,
+                                                     Long userId,
+                                                     int roundNumber) {
+        try {
+            log.debug(
+                    "Invoking AI model: sessionId={}, round={}, model={}, messageCount={}, toolCount={}",
+                    sessionId,
+                    roundNumber,
+                    chatModel.modelName(),
+                    messages.size(),
+                    toolSpecifications.size()
+            );
+            return chatModel.generate(messages, toolSpecifications);
+        } catch (Exception e) {
+            log.error(
+                    "AI model invocation failed: sessionId={}, companyId={}, userId={}, round={}, model={}",
+                    sessionId,
+                    companyId,
+                    userId,
+                    roundNumber,
+                    aiProperties.getModel(),
+                    e
+            );
+            throw e;
+        }
+    }
+
+    private AiChatTurnVO buildMessageResult(String sessionId, Long messageId, String content) {
+        AiChatTurnVO vo = new AiChatTurnVO();
+        vo.setSessionId(sessionId);
+        vo.setResultType(AiConstants.CHAT_RESULT_MESSAGE);
+        vo.setMessageId(messageId);
+        vo.setMessageType(AiConstants.MESSAGE_TYPE_MARKDOWN);
+        vo.setContent(content);
+        return vo;
+    }
+
+    private AiChatTurnVO buildActionRequiredResult(String sessionId, AiActionRequiredPayload payload) {
+        AiChatTurnVO vo = new AiChatTurnVO();
+        vo.setSessionId(sessionId);
+        vo.setResultType(AiConstants.CHAT_RESULT_ACTION_REQUIRED);
+        vo.setActionRequired(payload);
+        return vo;
     }
 
     @Override
@@ -122,16 +339,13 @@ public class AiServiceImpl implements AiService {
                     aiProperties.getModel()
             );
 
-            sendEvent(emitter, "session", Map.of("sessionId", context.sessionId()));
+            sendEvent(emitter, AiConstants.SSE_EVENT_SESSION, Map.of("sessionId", context.sessionId()));
 
             Long companyId = context.companyId();
             Long userId = context.userId();
             String sessionId = context.sessionId();
 
             Company company = companyMapper.selectById(context.companyId());
-            if (company == null) {
-                throw new BusinessException("当前企业不存在");
-            }
             if (company == null) {
                 throw new BusinessException("当前企业不存在");
             }
@@ -156,7 +370,7 @@ public class AiServiceImpl implements AiService {
             log.debug("Stored user AI message: sessionId={}, messageId={}", sessionId, userLog.getId());
 
             List<ChatMessage> messages = aiPromptBuilder.buildChatMessages(company, Constants.ROLE_OWNER, history, dto.getMessage());
-            ChatExecutionResult executionResult = executeChatLoop(messages, company, companyId, userId, sessionId);
+            ChatExecutionResult executionResult = executeChatLoop(messages, company, companyId, userId, sessionId, emitter);
 
             if (executionResult.actionRequired() != null) {
                 log.info("AI chat entered HITL flow: sessionId={}, actionId={}", sessionId, executionResult.actionRequired().getActionId());
@@ -165,18 +379,7 @@ public class AiServiceImpl implements AiService {
                 return;
             }
 
-            String finalText = executionResult.finalText();
-            finalText = finalText == null || finalText.isBlank()
-                    ? "\u62b1\u6b49\uff0c\u8fd9\u6b21\u6ca1\u6709\u751f\u6210\u6709\u6548\u56de\u7b54\uff0c\u8bf7\u6362\u4e2a\u95ee\u6cd5\u518d\u8bd5\u3002"
-                    : finalText;
-            /*
-            finalText = (finalText == null || finalText.isBlank())
-                    ? "抱歉，这次没有生成有效回答，请换个问法再试。"
-                    : finalText;
-            */
-            if (finalText == null || finalText.isBlank()) {
-                finalText = "抱歉，这次没有生成有效回答，请换个问法再试。";
-            }
+            String finalText = normalizeAssistantText(executionResult.finalText());
 
             var assistantLog = aiHistoryService.createMessage(
                     companyId,
@@ -190,10 +393,11 @@ public class AiServiceImpl implements AiService {
             log.debug("Stored assistant AI message: sessionId={}, messageId={}, length={}", sessionId, assistantLog.getId(), finalText.length());
 
             try {
-                for (String chunk : splitIntoChunks(finalText)) {
-                    sendEvent(emitter, "token", Map.of("content", chunk));
-                }
-                sendEvent(emitter, "done", Map.of("messageId", assistantLog.getId(), "content", finalText));
+                sendEvent(
+                        emitter,
+                        AiConstants.SSE_EVENT_DONE,
+                        Map.of("messageId", assistantLog.getId(), "content", finalText)
+                );
             } catch (IOException e) {
                 logChatFailure(context, "sse_send_final", e);
                 throw e;
@@ -206,42 +410,30 @@ public class AiServiceImpl implements AiService {
     }
 
     private ChatExecutionResult executeChatLoop(List<ChatMessage> initialMessages, Company company,
-                                                Long companyId, Long userId, String sessionId) {
-        OpenAiChatModel chatModel = chatModelProvider.getIfAvailable();
+                                                Long companyId, Long userId, String sessionId, SseEmitter emitter) {
+        OpenAiStreamingChatModel chatModel = streamingChatModelProvider.getIfAvailable();
         if (chatModel == null) {
             throw new BusinessException("AI 模型未初始化，请先检查 app.ai 配置");
-        }
-        if (chatModel == null) {
-            throw new BusinessException("AI 模型未初始化，请先填写 app.ai 配置");
         }
 
         List<ChatMessage> messages = new ArrayList<>(initialMessages);
         List<ToolSpecification> toolSpecifications = aiToolFacade.toolSpecifications();
 
         for (int round = 0; round < AiConstants.CHAT_MAX_TOOL_ROUNDS; round++) {
-            Response<AiMessage> response;
-            try {
-                log.debug(
-                        "Invoking AI model: sessionId={}, round={}, model={}, messageCount={}, toolCount={}",
-                        sessionId,
-                        round + 1,
-                        chatModel.modelName(),
-                        messages.size(),
-                        toolSpecifications.size()
-                );
-                response = chatModel.generate(messages, toolSpecifications);
-            } catch (Exception e) {
-                log.error(
-                        "AI model invocation failed: sessionId={}, companyId={}, userId={}, model={}",
-                        sessionId,
-                        companyId,
-                        userId,
-                        aiProperties.getModel(),
-                        e
-                );
-                throw e;
-            }
-            AiMessage aiMessage = response.content();
+            int roundNumber = round + 1;
+            sendThinkingEvent(emitter, roundNumber);
+
+            StreamingRoundResult roundResult = streamModelRound(
+                    chatModel,
+                    messages,
+                    toolSpecifications,
+                    sessionId,
+                    companyId,
+                    userId,
+                    roundNumber,
+                    emitter
+            );
+            AiMessage aiMessage = roundResult.response().content();
             if (aiMessage == null) {
                 throw new BusinessException("AI 没有返回有效内容，请稍后重试");
             }
@@ -251,7 +443,7 @@ public class AiServiceImpl implements AiService {
                 log.info(
                         "AI requested tool execution: sessionId={}, round={}, toolCount={}",
                         sessionId,
-                        round + 1,
+                        roundNumber,
                         aiMessage.toolExecutionRequests().size()
                 );
                 for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
@@ -286,16 +478,103 @@ public class AiServiceImpl implements AiService {
                 continue;
             }
 
+            String responseText = roundResult.text().isBlank() ? aiMessage.text() : roundResult.text();
             log.info(
                     "AI model response ready: sessionId={}, round={}, responseLength={}",
                     sessionId,
-                    round + 1,
-                    aiMessage.text() == null ? 0 : aiMessage.text().length()
+                    roundNumber,
+                    responseText == null ? 0 : responseText.length()
             );
-            return ChatExecutionResult.finalText(aiMessage.text());
+            return ChatExecutionResult.finalText(responseText);
         }
 
         throw new BusinessException("AI 推理轮次超限，请换个问法后重试");
+    }
+
+    private StreamingRoundResult streamModelRound(OpenAiStreamingChatModel chatModel,
+                                                  List<ChatMessage> messages,
+                                                  List<ToolSpecification> toolSpecifications,
+                                                  String sessionId,
+                                                  Long companyId,
+                                                  Long userId,
+                                                  int roundNumber,
+                                                  SseEmitter emitter) {
+        CompletableFuture<StreamingRoundResult> roundFuture = new CompletableFuture<>();
+        StringBuilder streamedText = new StringBuilder();
+
+        try {
+            log.debug(
+                    "Invoking AI streaming model: sessionId={}, round={}, model={}, messageCount={}, toolCount={}",
+                    sessionId,
+                    roundNumber,
+                    chatModel.modelName(),
+                    messages.size(),
+                    toolSpecifications.size()
+            );
+            chatModel.generate(messages, toolSpecifications, new StreamingResponseHandler<>() {
+                @Override
+                public void onNext(String token) {
+                    if (roundFuture.isDone() || token == null || token.isEmpty()) {
+                        return;
+                    }
+                    streamedText.append(token);
+                    try {
+                        sendEvent(emitter, AiConstants.SSE_EVENT_TOKEN, Map.of("content", token));
+                    } catch (IOException e) {
+                        roundFuture.completeExceptionally(e);
+                    }
+                }
+
+                @Override
+                public void onComplete(Response<AiMessage> response) {
+                    if (roundFuture.isDone()) {
+                        return;
+                    }
+                    roundFuture.complete(new StreamingRoundResult(streamedText.toString(), response));
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    if (roundFuture.isDone()) {
+                        return;
+                    }
+                    roundFuture.completeExceptionally(throwable);
+                }
+            });
+
+            StreamingRoundResult roundResult = roundFuture.get();
+            log.debug(
+                    "AI streaming round completed: sessionId={}, round={}, streamedLength={}",
+                    sessionId,
+                    roundNumber,
+                    roundResult.text().length()
+            );
+            return roundResult;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BusinessException("AI 响应被中断，请稍后重试");
+        } catch (ExecutionException e) {
+            log.error(
+                    "AI streaming round failed: sessionId={}, companyId={}, userId={}, round={}",
+                    sessionId,
+                    companyId,
+                    userId,
+                    roundNumber,
+                    e.getCause() == null ? e : e.getCause()
+            );
+            throw toRuntimeException(e);
+        } catch (Exception e) {
+            log.error(
+                    "AI model invocation failed: sessionId={}, companyId={}, userId={}, round={}, model={}",
+                    sessionId,
+                    companyId,
+                    userId,
+                    roundNumber,
+                    aiProperties.getModel(),
+                    e
+            );
+            throw e;
+        }
     }
 
     private void validateAiAvailability() {
@@ -311,25 +590,24 @@ public class AiServiceImpl implements AiService {
         if (aiProperties.getModel() == null || aiProperties.getModel().isBlank()) {
             throw new BusinessException(500, "AI 服务缺少模型名称配置");
         }
-        if (!aiProperties.isEnabled()) {
-            throw new BusinessException(500, "AI 服务尚未启用，请先在配置文件中填写模型参数");
-        }
-        if (aiProperties.getApiKey() == null || aiProperties.getApiKey().isBlank()) {
-            throw new BusinessException(500, "AI 服务缺少 API Key 配置");
-        }
     }
 
-    private List<String> splitIntoChunks(String text) {
-        List<String> chunks = new ArrayList<>();
-        String content = text == null ? "" : text;
-        int chunkSize = 18;
-        for (int index = 0; index < content.length(); index += chunkSize) {
-            chunks.add(content.substring(index, Math.min(content.length(), index + chunkSize)));
+    private String normalizeAssistantText(String text) {
+        return text == null || text.isBlank()
+                ? "抱歉，这次没有生成有效回答，请换个问法再试。"
+                : text;
+    }
+
+    private void sendThinkingEvent(SseEmitter emitter, int round) {
+        try {
+            sendEvent(
+                    emitter,
+                    AiConstants.SSE_EVENT_THINKING,
+                    Map.of("round", round, "phase", AiConstants.THINKING_PHASE_MODEL_WAIT)
+            );
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
-        if (chunks.isEmpty()) {
-            chunks.add("");
-        }
-        return chunks;
     }
 
     private void sendEvent(SseEmitter emitter, String event, Object payload) throws IOException {
@@ -355,7 +633,7 @@ public class AiServiceImpl implements AiService {
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("code", payload.code());
                 body.put("message", payload.message());
-                emitter.send(SseEmitter.event().name("error").data(body));
+                emitter.send(SseEmitter.event().name(AiConstants.SSE_EVENT_ERROR).data(body));
             } catch (Exception sendException) {
                 log.error(
                         "Failed to send AI error event: sessionId={}, companyId={}, userId={}",
@@ -376,7 +654,7 @@ public class AiServiceImpl implements AiService {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("code", 500);
             payload.put("message", message);
-            emitter.send(SseEmitter.event().name("error").data(payload));
+            emitter.send(SseEmitter.event().name(AiConstants.SSE_EVENT_ERROR).data(payload));
         } catch (Exception ignored) {
         } finally {
             emitter.complete();
@@ -393,36 +671,29 @@ public class AiServiceImpl implements AiService {
         if (httpException != null) {
             int code = httpException.code();
             String message = switch (code) {
-                case 401, 403 -> "API Key \u65e0\u6548\u6216\u65e0\u6a21\u578b\u6743\u9650";
-                case 404 -> "\u6a21\u578b\u4e0d\u5b58\u5728\u6216\u63a5\u53e3\u5730\u5740\u9519\u8bef";
-                case 429 -> "AI \u670d\u52a1\u9650\u6d41\u6216\u8d85\u65f6";
-                default -> "AI \u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528";
-            };
-            /*
-            String message = switch (code) {
                 case 401, 403 -> "API Key 无效或无模型权限";
                 case 404 -> "模型不存在或接口地址错误";
                 case 429 -> "AI 服务限流或超时";
                 default -> "AI 服务暂时不可用";
             };
-            */
             return new AiErrorPayload(code, message);
         }
 
-        if (isTimeout(rootCause)) {
-            return new AiErrorPayload(504, "AI \u670d\u52a1\u9650\u6d41\u6216\u8d85\u65f6");
+        if (rootCause instanceof IllegalArgumentException illegalArgumentException
+                && illegalArgumentException.getMessage() != null
+                && illegalArgumentException.getMessage().contains("unknown to jtokkit")) {
+            return new AiErrorPayload(500, "AI 模型分词配置不兼容，请检查模型配置");
+        }
+
+        if (rootCause instanceof ClassCastException classCastException
+                && classCastException.getMessage() != null
+                && (classCastException.getMessage().contains("ImmutableCollections")
+                || classCastException.getMessage().contains("[Ljava.lang.Object;"))) {
+            return new AiErrorPayload(500, "AI 工具参数配置不兼容，请检查工具定义");
         }
 
         if (isTimeout(rootCause)) {
             return new AiErrorPayload(504, "AI 服务限流或超时");
-        }
-
-        if (rootCause instanceof ConnectException || rootCause instanceof UnknownHostException) {
-            return new AiErrorPayload(502, "AI \u670d\u52a1\u8fde\u63a5\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u63a5\u53e3\u5730\u5740\u6216\u7f51\u7edc");
-        }
-
-        if (rootCause != null) {
-            return new AiErrorPayload(500, "AI \u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528");
         }
 
         if (rootCause instanceof ConnectException || rootCause instanceof UnknownHostException) {
@@ -456,6 +727,13 @@ public class AiServiceImpl implements AiService {
     private Exception toException(Throwable throwable) {
         Throwable actual = unwrap(throwable);
         return actual instanceof Exception exception ? exception : new RuntimeException(actual);
+    }
+
+    private RuntimeException toRuntimeException(Throwable throwable) {
+        Exception exception = toException(throwable);
+        return exception instanceof RuntimeException runtimeException
+                ? runtimeException
+                : new RuntimeException(exception);
     }
 
     private Throwable unwrap(Throwable throwable) {
@@ -493,6 +771,9 @@ public class AiServiceImpl implements AiService {
     }
 
     record AiErrorPayload(int code, String message) {
+    }
+
+    private record StreamingRoundResult(String text, Response<AiMessage> response) {
     }
 
     private record ChatExecutionResult(String finalText, AiActionRequiredPayload actionRequired) {

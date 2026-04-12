@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -359,7 +360,7 @@ public class AiToolFacade {
                 .parameters(ToolParameters.builder()
                         .type("object")
                         .properties(properties)
-                        .required(required)
+                        .required(new ArrayList<>(required))
                         .build())
                 .build();
     }
@@ -383,7 +384,7 @@ public class AiToolFacade {
         Object firstValue = values.isEmpty() ? null : values.getFirst();
         property.put("type", firstValue instanceof Integer ? "integer" : "string");
         property.put("description", description);
-        property.put("enum", values);
+        property.put("enum", values.toArray());
         return property;
     }
 

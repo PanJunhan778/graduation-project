@@ -4,11 +4,13 @@ import type {
   AiActionRequiredPayload,
   AiChatMessageVO,
   AiChatRequest,
+  AiChatTurnVO,
   AiConfirmActionRequest,
   AiConfirmActionVO,
   AiDoneEventPayload,
   AiSessionEventPayload,
   AiSessionVO,
+  AiThinkingEventPayload,
   AiTokenEventPayload,
 } from '@/types'
 
@@ -28,8 +30,16 @@ export function deleteAiSession(sessionId: string) {
   return request.delete<null>(`/ai/sessions/${sessionId}`)
 }
 
+export function chatAi(payload: AiChatRequest, signal?: AbortSignal) {
+  return request.post<AiChatTurnVO>('/ai/chat', payload, {
+    signal,
+    timeout: 120000,
+  })
+}
+
 export interface AiStreamCallbacks {
   onSession?: (payload: AiSessionEventPayload) => void
+  onThinking?: (payload: AiThinkingEventPayload) => void
   onToken?: (payload: AiTokenEventPayload) => void
   onDone?: (payload: AiDoneEventPayload) => void
   onActionRequired?: (payload: AiActionRequiredPayload) => void
@@ -40,6 +50,27 @@ export async function streamAiChat(
   callbacks: AiStreamCallbacks,
   signal?: AbortSignal,
 ) {
+  const res = await chatAi(payload, signal)
+  const turn = res.data
+
+  callbacks.onSession?.({ sessionId: turn.sessionId })
+
+  if (turn.resultType === 'action_required' && turn.actionRequired) {
+    callbacks.onActionRequired?.(turn.actionRequired)
+    return
+  }
+
+  if (turn.content) {
+    callbacks.onThinking?.({ round: 1, phase: 'model_wait' })
+    callbacks.onToken?.({ content: turn.content })
+  }
+
+  callbacks.onDone?.({
+    messageId: turn.messageId || 0,
+    content: turn.content || '',
+  })
+  return
+
   const token = getToken()
   const response = await fetch('/api/ai/chat', {
     method: 'POST',
@@ -65,7 +96,7 @@ export async function streamAiChat(
     throw new Error('AI 流式响应不可用')
   }
 
-  const reader = response.body.getReader()
+  const reader = response.body!.getReader()
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
 
@@ -119,6 +150,9 @@ function dispatchEvent(eventName: string, payload: unknown, callbacks: AiStreamC
   switch (eventName) {
     case 'session':
       callbacks.onSession?.(payload as AiSessionEventPayload)
+      break
+    case 'thinking':
+      callbacks.onThinking?.(payload as AiThinkingEventPayload)
       break
     case 'token':
       callbacks.onToken?.(payload as AiTokenEventPayload)

@@ -15,6 +15,7 @@ import type {
   AiChatMessageVO,
   AiDoneEventPayload,
   AiSessionVO,
+  AiThinkingEventPayload,
   AiTokenEventPayload,
 } from '@/types'
 import {
@@ -33,6 +34,8 @@ const markdown = new MarkdownIt({
   breaks: true,
 })
 
+type DraftThinkingState = 'bubble' | 'inline'
+
 const promptChips = [
   '分析本月各项支出占比',
   '查询当前待缴税金',
@@ -47,10 +50,10 @@ const inputMessage = ref('')
 const loadingSessions = ref(false)
 const loadingMessages = ref(false)
 const isStreaming = ref(false)
+const streamAbortController = ref<AbortController | null>(null)
 const confirmingActionId = ref<number | null>(null)
 const deletingSessionId = ref('')
 const isHistoryCollapsed = ref(false)
-const streamAbortController = ref<AbortController | null>(null)
 const messageStreamRef = ref<HTMLElement | null>(null)
 
 const activeSession = computed(
@@ -61,7 +64,7 @@ const isEmptyConversation = computed(() => messages.value.length === 0)
 const toolbarMeta = computed(() => (activeSessionId.value ? '当前会话' : '新对话'))
 const toolbarStatus = computed(() => {
   if (isStreaming.value) {
-    return 'AI 正在生成回复'
+    return '正在思考...'
   }
   return activeSessionId.value ? '会话已连接' : '等待你的第一条消息'
 })
@@ -74,6 +77,12 @@ watch(
   },
   { deep: true },
 )
+
+watch(isStreaming, async (value) => {
+  if (!value) return
+  await nextTick()
+  scrollToBottom()
+})
 
 onMounted(async () => {
   await initializePage()
@@ -189,11 +198,10 @@ async function handleSendMessage() {
     metadata: null,
     createTime: new Date().toISOString(),
   }
-
-  let assistantPlaceholder: AiChatMessageVO | null = null
+  const assistantPlaceholder = createAssistantPlaceholder()
   let resolvedSessionId = activeSessionId.value
 
-  messages.value.push(userMessage)
+  messages.value.push(userMessage, assistantPlaceholder)
   inputMessage.value = ''
   isStreaming.value = true
 
@@ -213,23 +221,25 @@ async function handleSendMessage() {
             activeSessionId.value = sessionId
           }
         },
+        onThinking: (_payload: AiThinkingEventPayload) => {
+          setDraftThinkingState(
+            assistantPlaceholder,
+            assistantPlaceholder.content.trim() ? 'inline' : 'bubble',
+          )
+        },
         onToken: (payload: AiTokenEventPayload) => {
-          if (!assistantPlaceholder) {
-            assistantPlaceholder = createAssistantPlaceholder()
-            messages.value.push(assistantPlaceholder)
-          }
+          clearDraftThinkingState(assistantPlaceholder)
           assistantPlaceholder.content += payload.content
         },
         onDone: async (payload: AiDoneEventPayload) => {
-          if (!assistantPlaceholder) {
-            assistantPlaceholder = createAssistantPlaceholder()
-            messages.value.push(assistantPlaceholder)
-          }
+          clearDraftThinkingState(assistantPlaceholder)
           assistantPlaceholder.id = payload.messageId
           assistantPlaceholder.content = payload.content
+          assistantPlaceholder.metadata = null
           await refreshSessions(resolvedSessionId)
         },
         onActionRequired: async (payload: AiActionRequiredPayload) => {
+          removeDraftAssistant(assistantPlaceholder)
           const actionMessage: AiChatMessageVO = {
             id: -payload.actionId,
             role: 'assistant',
@@ -252,9 +262,7 @@ async function handleSendMessage() {
       abortController.signal,
     )
   } catch (error) {
-    messages.value = messages.value.filter(
-      (item) => item.id !== userMessage.id && item.id !== assistantPlaceholder?.id,
-    )
+    removeDraftAssistant(assistantPlaceholder)
 
     if (!(error instanceof DOMException && error.name === 'AbortError')) {
       ElMessage.error(error instanceof Error ? error.message : 'AI 服务暂时不可用')
@@ -362,9 +370,46 @@ function createAssistantPlaceholder(): AiChatMessageVO {
     role: 'assistant',
     messageType: 'markdown',
     content: '',
-    metadata: null,
+    metadata: { transient: true },
     createTime: new Date().toISOString(),
   }
+}
+
+function getDraftThinkingState(message: AiChatMessageVO): DraftThinkingState | null {
+  const thinkingState = (message.metadata as Record<string, unknown> | null)?.thinkingState
+  return thinkingState === 'bubble' || thinkingState === 'inline' ? thinkingState : null
+}
+
+function setDraftThinkingState(message: AiChatMessageVO, state: DraftThinkingState) {
+  message.metadata = {
+    ...(message.metadata || {}),
+    transient: true,
+    thinkingState: state,
+  }
+}
+
+function clearDraftThinkingState(message: AiChatMessageVO) {
+  if (!message.metadata) {
+    return
+  }
+
+  const metadata = { ...(message.metadata as Record<string, unknown>) }
+  delete metadata.thinkingState
+  delete metadata.transient
+  message.metadata = Object.keys(metadata).length > 0 ? metadata : null
+}
+
+function removeDraftAssistant(message: AiChatMessageVO) {
+  clearDraftThinkingState(message)
+  messages.value = messages.value.filter((item) => item.id !== message.id)
+}
+
+function isBubbleThinking(message: AiChatMessageVO) {
+  return getDraftThinkingState(message) === 'bubble'
+}
+
+function hasInlineThinking(message: AiChatMessageVO) {
+  return getDraftThinkingState(message) === 'inline'
 }
 
 function getActionMetadata(message: AiChatMessageVO) {
@@ -596,15 +641,29 @@ function scrollToBottom() {
 
               <div
                 v-else-if="message.role === 'assistant'"
-                class="message-bubble message-bubble--assistant"
+                class="assistant-stack"
               >
-                <div class="assistant-content" v-html="renderMarkdown(message.content)" />
+                <div
+                  v-if="message.content || isBubbleThinking(message)"
+                  class="message-bubble message-bubble--assistant"
+                >
+                  <div v-if="message.content" class="assistant-content" v-html="renderMarkdown(message.content)" />
+                  <div v-else class="assistant-thinking assistant-thinking--bubble">正在思考...</div>
+                </div>
+
+                <div v-if="hasInlineThinking(message)" class="assistant-thinking assistant-thinking--inline">
+                  正在思考...
+                </div>
               </div>
 
               <div v-else class="message-bubble message-bubble--user">
                 {{ message.content }}
               </div>
             </article>
+
+            <div v-if="isStreaming" class="assistant-thinking assistant-thinking--inline chat-workbench__thinking">
+              正在思考...
+            </div>
           </div>
         </section>
 
@@ -628,11 +687,10 @@ function scrollToBottom() {
               </el-button>
 
               <el-button
-                v-else
                 type="primary"
                 circle
                 title="发送消息"
-                :disabled="!inputMessage.trim()"
+                :disabled="!inputMessage.trim() || isStreaming"
                 @click="handleSendMessage"
               >
                 <el-icon><Promotion /></el-icon>
@@ -1031,6 +1089,14 @@ function scrollToBottom() {
   justify-content: flex-start;
 }
 
+.assistant-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(72%, 760px);
+}
+
 .message-bubble {
   max-width: min(76%, 780px);
   padding: 16px 18px;
@@ -1039,7 +1105,8 @@ function scrollToBottom() {
 }
 
 .message-bubble--assistant {
-  max-width: min(72%, 760px);
+  width: 100%;
+  max-width: 100%;
   padding: 0;
   border-radius: 24px 24px 24px 10px;
   background: #f6f7f9;
@@ -1053,6 +1120,29 @@ function scrollToBottom() {
 
 .assistant-content {
   padding: 18px 20px 18px 24px;
+}
+
+.assistant-thinking {
+  display: inline-flex;
+  align-items: center;
+  color: #6f6964;
+  font-size: 14px;
+  line-height: 1.6;
+  animation: thinkingPulse 1.3s ease-in-out infinite;
+}
+
+.assistant-thinking--bubble {
+  padding: 18px 20px 18px 24px;
+}
+
+.assistant-thinking--inline {
+  padding-left: 6px;
+  font-size: 12px;
+  color: #8e8882;
+}
+
+.chat-workbench__thinking {
+  margin-left: 10px;
 }
 
 .assistant-content :deep(table) {
@@ -1242,6 +1332,10 @@ function scrollToBottom() {
   align-self: stretch;
 }
 
+.chat-composer__actions > :first-child:not(:last-child) {
+  display: none;
+}
+
 .chat-composer__surface :deep(.el-textarea__wrapper) {
   padding: 0;
   box-shadow: none;
@@ -1262,5 +1356,15 @@ function scrollToBottom() {
 
 .chat-composer__surface :deep(.el-textarea__inner::placeholder) {
   color: #9d9791;
+}
+
+@keyframes thinkingPulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 </style>

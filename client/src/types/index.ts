@@ -362,12 +362,26 @@ export interface AiChatMessageVO {
   createTime: string
 }
 
+export interface AiChatTurnVO {
+  sessionId: string
+  resultType: 'message' | 'action_required'
+  messageId?: number
+  messageType?: 'markdown'
+  content?: string
+  actionRequired?: AiActionRequiredPayload
+}
+
 export interface AiSessionEventPayload {
   sessionId: string
 }
 
 export interface AiTokenEventPayload {
   content: string
+}
+
+export interface AiThinkingEventPayload {
+  round: number
+  phase: 'model_wait'
 }
 
 export interface AiDoneEventPayload {
