@@ -598,7 +598,7 @@ function scrollToBottom() {
                 v-else-if="message.role === 'assistant'"
                 class="message-bubble message-bubble--assistant"
               >
-                <div v-html="renderMarkdown(message.content)" />
+                <div class="assistant-content" v-html="renderMarkdown(message.content)" />
               </div>
 
               <div v-else class="message-bubble message-bubble--user">
@@ -1039,40 +1039,62 @@ function scrollToBottom() {
 }
 
 .message-bubble--assistant {
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  max-width: min(72%, 760px);
+  padding: 0;
+  border-radius: 24px 24px 24px 10px;
+  background: #f6f7f9;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   color: rgba(15, 23, 42, 0.9);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.03),
+    0 10px 24px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
 }
 
-.message-bubble--assistant :deep(table) {
+.assistant-content {
+  padding: 18px 20px 18px 24px;
+}
+
+.assistant-content :deep(table) {
   width: 100%;
   margin: 12px 0;
   border-collapse: collapse;
   font-size: 13px;
 }
 
-.message-bubble--assistant :deep(th),
-.message-bubble--assistant :deep(td) {
+.assistant-content :deep(th),
+.assistant-content :deep(td) {
   border: 1px solid rgba(15, 23, 42, 0.08);
   padding: 8px 10px;
   text-align: left;
 }
 
-.message-bubble--assistant :deep(p),
-.message-bubble--assistant :deep(ul),
-.message-bubble--assistant :deep(ol) {
+.assistant-content :deep(p),
+.assistant-content :deep(ul),
+.assistant-content :deep(ol) {
   margin: 0;
 }
 
-.message-bubble--assistant :deep(p + p),
-.message-bubble--assistant :deep(p + table),
-.message-bubble--assistant :deep(table + p),
-.message-bubble--assistant :deep(ul + p),
-.message-bubble--assistant :deep(ol + p),
-.message-bubble--assistant :deep(ul + ul),
-.message-bubble--assistant :deep(ol + ol) {
+.assistant-content :deep(ul),
+.assistant-content :deep(ol) {
+  padding-left: 1.35em;
+}
+
+.assistant-content :deep(li + li) {
+  margin-top: 6px;
+}
+
+.assistant-content :deep(p + p),
+.assistant-content :deep(p + table),
+.assistant-content :deep(table + p),
+.assistant-content :deep(ul + p),
+.assistant-content :deep(ol + p),
+.assistant-content :deep(ul + ul),
+.assistant-content :deep(ol + ol),
+.assistant-content :deep(p + ul),
+.assistant-content :deep(p + ol),
+.assistant-content :deep(ul + table),
+.assistant-content :deep(ol + table) {
   margin-top: 10px;
 }
 
