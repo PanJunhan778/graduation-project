@@ -6,8 +6,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pjh.server.common.AiConstants;
 import com.pjh.server.entity.AiChatLog;
+import com.pjh.server.entity.AiPendingAction;
 import com.pjh.server.exception.BusinessException;
 import com.pjh.server.mapper.AiChatLogMapper;
+import com.pjh.server.mapper.AiPendingActionMapper;
 import com.pjh.server.vo.AiChatMessageVO;
 import com.pjh.server.vo.AiSessionVO;
 import dev.langchain4j.data.message.AiMessage;
@@ -15,6 +17,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,6 +30,7 @@ import java.util.Map;
 public class AiHistoryService {
 
     private final AiChatLogMapper aiChatLogMapper;
+    private final AiPendingActionMapper aiPendingActionMapper;
     private final ObjectMapper objectMapper;
 
     public AiChatLog createMessage(Long companyId, Long userId, String sessionId, String role,
@@ -125,6 +129,25 @@ public class AiHistoryService {
                     return message;
                 })
                 .toList();
+    }
+
+    @Transactional
+    public void deleteSession(Long companyId, Long userId, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            throw new BusinessException("会话ID不能为空");
+        }
+
+        String normalizedSessionId = sessionId.trim();
+
+        aiPendingActionMapper.delete(new LambdaQueryWrapper<AiPendingAction>()
+                .eq(AiPendingAction::getCompanyId, companyId)
+                .eq(AiPendingAction::getUserId, userId)
+                .eq(AiPendingAction::getSessionId, normalizedSessionId));
+
+        aiChatLogMapper.delete(new LambdaQueryWrapper<AiChatLog>()
+                .eq(AiChatLog::getCompanyId, companyId)
+                .eq(AiChatLog::getUserId, userId)
+                .eq(AiChatLog::getSessionId, normalizedSessionId));
     }
 
     public Map<String, Object> readMetadata(String rawMetadata) {

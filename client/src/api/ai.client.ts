@@ -1,4 +1,3 @@
-/*
 import request from '@/api/request'
 import { getToken } from '@/utils/auth'
 import type {
@@ -16,11 +15,7 @@ import type {
 export function listAiSessions() {
   return request.get<AiSessionVO[]>('/ai/sessions')
 }
-*/
 
-export * from './ai.client'
-
-/*
 export function listAiMessages(sessionId: string) {
   return request.get<AiChatMessageVO[]>(`/ai/sessions/${sessionId}/messages`)
 }
@@ -140,4 +135,3 @@ function dispatchEvent(eventName: string, payload: unknown, callbacks: AiStreamC
       break
   }
 }
-*/

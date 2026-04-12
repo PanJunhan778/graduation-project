@@ -104,6 +104,13 @@ public class AiServiceImpl implements AiService {
         return aiHistoryService.listMessages(companyId, userId, sessionId);
     }
 
+    @Override
+    public void deleteSession(String sessionId) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        Long userId = currentSessionService.requireCurrentUserId();
+        aiHistoryService.deleteSession(companyId, userId, sessionId);
+    }
+
     void doStreamChat(AiChatContext context, AiChatRequestDTO dto, SseEmitter emitter) {
         try {
             validateAiAvailability();

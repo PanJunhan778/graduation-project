@@ -1,13 +1,13 @@
-<!--
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import {
+  confirmAiAction,
+  deleteAiSession,
   listAiMessages,
   listAiSessions,
   streamAiChat,
-  confirmAiAction,
 } from '@/api/ai'
 import type {
   AiActionMetadata,
@@ -18,7 +18,9 @@ import type {
   AiTokenEventPayload,
 } from '@/types'
 import {
-  ChatDotRound,
+  Delete,
+  Expand,
+  Fold,
   Plus,
   Promotion,
   RefreshRight,
@@ -39,6 +41,8 @@ const loadingSessions = ref(false)
 const loadingMessages = ref(false)
 const isStreaming = ref(false)
 const confirmingActionId = ref<number | null>(null)
+const deletingSessionId = ref('')
+const isHistoryCollapsed = ref(false)
 const streamAbortController = ref<AbortController | null>(null)
 const messageStreamRef = ref<HTMLElement | null>(null)
 
@@ -53,7 +57,7 @@ const activeSession = computed(() =>
   sessions.value.find((item) => item.sessionId === activeSessionId.value) || null,
 )
 
-const pageTitle = computed(() => activeSession.value?.title || 'AI 智能助理')
+const pageTitle = computed(() => activeSession.value?.title || '开始新对话')
 
 watch(
   messages,
@@ -71,34 +75,55 @@ onMounted(async () => {
 async function initializePage() {
   loadingSessions.value = true
   try {
-    const res = await listAiSessions()
-    sessions.value = res.data
-    if (sessions.value[0]?.sessionId) {
-      activeSessionId.value = sessions.value[0].sessionId
-      await loadMessages(activeSessionId.value)
-    }
+    await refreshSessions(undefined, { reloadMessages: true })
   } finally {
     loadingSessions.value = false
   }
 }
 
-async function refreshSessions(preferredSessionId?: string) {
+async function refreshSessions(
+  preferredSessionId?: string,
+  options: { reloadMessages?: boolean } = {},
+) {
   const res = await listAiSessions()
   sessions.value = res.data
-  const targetSessionId =
-    preferredSessionId ||
-    activeSessionId.value ||
-    sessions.value[0]?.sessionId ||
-    ''
 
-  if (!targetSessionId) {
+  const preferredExists =
+    !!preferredSessionId &&
+    sessions.value.some((item) => item.sessionId === preferredSessionId)
+  const currentExists =
+    !!activeSessionId.value &&
+    sessions.value.some((item) => item.sessionId === activeSessionId.value)
+
+  const nextSessionId = preferredExists
+    ? preferredSessionId!
+    : currentExists
+      ? activeSessionId.value
+      : sessions.value[0]?.sessionId || ''
+
+  if (!nextSessionId) {
     activeSessionId.value = ''
     messages.value = []
     return
   }
 
-  if (!activeSessionId.value) {
-    activeSessionId.value = targetSessionId
+  const sessionChanged = nextSessionId !== activeSessionId.value
+  activeSessionId.value = nextSessionId
+
+  if (options.reloadMessages || sessionChanged || messages.value.length === 0) {
+    await loadMessages(nextSessionId)
+  }
+}
+
+async function handleRefreshSessions() {
+  loadingSessions.value = true
+  try {
+    await refreshSessions(activeSessionId.value, {
+      reloadMessages: Boolean(activeSessionId.value),
+    })
+    ElMessage.success('会话已刷新')
+  } finally {
+    loadingSessions.value = false
   }
 }
 
@@ -246,10 +271,52 @@ async function handleConfirmAction(message: AiChatMessageVO, isApproved: boolean
   }
 }
 
+async function handleDeleteSession(session: AiSessionVO) {
+  if (!session.sessionId || deletingSessionId.value) {
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `删除“${session.title}”后，这段对话历史将从列表中移除。`,
+      '删除对话',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+
+  const isDeletingCurrent = session.sessionId === activeSessionId.value
+  if (isDeletingCurrent) {
+    stopStreaming()
+  }
+
+  deletingSessionId.value = session.sessionId
+  loadingSessions.value = true
+  try {
+    await deleteAiSession(session.sessionId)
+    await refreshSessions(isDeletingCurrent ? undefined : activeSessionId.value, {
+      reloadMessages: isDeletingCurrent,
+    })
+    ElMessage.success('对话已删除')
+  } finally {
+    deletingSessionId.value = ''
+    loadingSessions.value = false
+  }
+}
+
 function stopStreaming() {
   streamAbortController.value?.abort()
   streamAbortController.value = null
   isStreaming.value = false
+}
+
+function toggleHistoryRail() {
+  isHistoryCollapsed.value = !isHistoryCollapsed.value
 }
 
 function handleChipClick(chip: string) {
@@ -298,7 +365,7 @@ function renderMarkdown(content: string) {
   return DOMPurify.sanitize(markdown.render(content || ''))
 }
 
-function formatTime(value: string) {
+function formatTime(value?: string) {
   if (!value) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
@@ -313,6 +380,11 @@ function formatTime(value: string) {
   })
 }
 
+function getSessionInitial(title: string) {
+  const normalized = title.trim()
+  return normalized ? normalized.slice(0, 1).toUpperCase() : 'A'
+}
+
 function scrollToBottom() {
   const container = messageStreamRef.value
   if (!container) return
@@ -321,61 +393,119 @@ function scrollToBottom() {
 </script>
 
 <template>
-  <div class="ai-chat-page">
-    <aside class="session-panel ds-card">
-      <div class="session-panel__header">
-        <div>
-          <p class="eyebrow">Owner Workspace</p>
-          <h2>AI 助理</h2>
+  <div class="ai-chat-page" :class="{ 'ai-chat-page--collapsed': isHistoryCollapsed }">
+    <aside class="history-rail" :class="{ 'history-rail--collapsed': isHistoryCollapsed }">
+      <header class="history-rail__header">
+        <div v-if="!isHistoryCollapsed" class="history-rail__heading">
+          <p class="eyebrow">AI Workspace</p>
+          <h2>历史会话</h2>
         </div>
-        <el-button circle @click="startNewConversation">
-          <el-icon><Plus /></el-icon>
-        </el-button>
-      </div>
+        <div v-else class="history-rail__brand">AI</div>
 
-      <el-button class="new-chat-btn" type="primary" @click="startNewConversation">
-        <el-icon><ChatDotRound /></el-icon>
-        <span>发起新对话</span>
+        <el-button
+          circle
+          :title="isHistoryCollapsed ? '展开历史' : '收起历史'"
+          @click="toggleHistoryRail"
+        >
+          <el-icon>
+            <Expand v-if="isHistoryCollapsed" />
+            <Fold v-else />
+          </el-icon>
+        </el-button>
+      </header>
+
+      <el-button
+        class="history-rail__new"
+        type="primary"
+        :title="'发起新对话'"
+        @click="startNewConversation"
+      >
+        <el-icon><Plus /></el-icon>
+        <span v-if="!isHistoryCollapsed">新对话</span>
       </el-button>
 
-      <div v-loading="loadingSessions" class="session-list">
-        <button
+      <div v-loading="loadingSessions" class="history-list">
+        <div
           v-for="session in sessions"
           :key="session.sessionId"
-          class="session-item"
-          :class="{ active: activeSessionId === session.sessionId }"
-          @click="selectSession(session.sessionId)"
+          class="history-item"
+          :class="{
+            active: activeSessionId === session.sessionId,
+            'history-item--collapsed': isHistoryCollapsed,
+          }"
         >
-          <div class="session-item__title">{{ session.title }}</div>
-          <div class="session-item__preview">{{ session.lastMessagePreview || '暂无消息' }}</div>
-          <div class="session-item__time">{{ formatTime(session.lastMessageTime) }}</div>
-        </button>
+          <button
+            class="history-item__button"
+            :title="session.title"
+            :disabled="deletingSessionId === session.sessionId"
+            @click="selectSession(session.sessionId)"
+          >
+            <span class="history-item__avatar">{{ getSessionInitial(session.title) }}</span>
 
-        <div v-if="!loadingSessions && sessions.length === 0" class="session-empty">
-          <p>还没有历史会话</p>
-          <span>从右侧输入一个问题，我们就能开始第一轮经营分析。</span>
+            <div v-if="!isHistoryCollapsed" class="history-item__content">
+              <div class="history-item__title-row">
+                <span class="history-item__title">{{ session.title }}</span>
+                <span class="history-item__time">{{ formatTime(session.lastMessageTime) }}</span>
+              </div>
+              <p class="history-item__preview">{{ session.lastMessagePreview || '暂无消息' }}</p>
+            </div>
+          </button>
+
+          <el-button
+            v-if="!isHistoryCollapsed"
+            class="history-item__delete"
+            text
+            circle
+            :title="'删除对话'"
+            :loading="deletingSessionId === session.sessionId"
+            :disabled="deletingSessionId === session.sessionId"
+            @click.stop="handleDeleteSession(session)"
+          >
+            <el-icon><Delete /></el-icon>
+          </el-button>
+        </div>
+
+        <div
+          v-if="!loadingSessions && sessions.length === 0"
+          class="history-empty"
+          :class="{ 'history-empty--collapsed': isHistoryCollapsed }"
+        >
+          <template v-if="isHistoryCollapsed">
+            <span class="history-empty__dot" />
+          </template>
+          <template v-else>
+            <p>暂无历史对话</p>
+            <span>从右侧发起一轮新对话后，这里会自动沉淀历史记录。</span>
+          </template>
         </div>
       </div>
     </aside>
 
-    <main class="chat-panel">
-      <header class="chat-panel__header ds-card">
-        <div class="chat-panel__header-main">
-          <div>
-            <p class="eyebrow">Full Screen Conversation</p>
-            <h1>{{ pageTitle }}</h1>
-          </div>
+    <section class="chat-workbench ds-card">
+      <header class="chat-workbench__toolbar">
+        <div class="chat-workbench__title">
+          <p class="eyebrow">Owner AI Workspace</p>
+          <h1>{{ pageTitle }}</h1>
         </div>
 
-        <div class="chat-panel__header-actions">
-          <el-button @click="refreshSessions(activeSessionId)">
+        <div class="chat-workbench__actions">
+          <el-button
+            v-if="isHistoryCollapsed"
+            circle
+            :title="'展开历史'"
+            @click="toggleHistoryRail"
+          >
+            <el-icon><Expand /></el-icon>
+          </el-button>
+
+          <el-button :loading="loadingSessions" @click="handleRefreshSessions">
             <el-icon><RefreshRight /></el-icon>
             <span>刷新会话</span>
           </el-button>
         </div>
       </header>
 
-      <section ref="messageStreamRef" v-loading="loadingMessages" class="message-stream ds-card">
+      <section ref="messageStreamRef" v-loading="loadingMessages" class="chat-workbench__messages">
         <div v-if="messages.length === 0" class="empty-state">
           <div class="empty-state__badge">M11 已接入</div>
           <h3>把经营问题直接交给 AI</h3>
@@ -442,7 +572,7 @@ function scrollToBottom() {
         </article>
       </section>
 
-      <footer class="input-console ds-card">
+      <footer class="chat-workbench__composer">
         <div class="chip-row">
           <button
             v-for="chip in promptChips"
@@ -468,6 +598,7 @@ function scrollToBottom() {
             <el-button
               v-if="isStreaming"
               circle
+              :title="'停止生成'"
               @click="stopStreaming"
             >
               <el-icon><VideoPause /></el-icon>
@@ -477,6 +608,7 @@ function scrollToBottom() {
               v-else
               type="primary"
               circle
+              :title="'发送消息'"
               :disabled="!inputMessage.trim()"
               @click="handleSendMessage"
             >
@@ -485,200 +617,333 @@ function scrollToBottom() {
           </div>
         </div>
       </footer>
-    </main>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .ai-chat-page {
-  flex: 1;
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr);
+  gap: 18px;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 20px;
-  overflow: hidden;
+  transition: grid-template-columns 0.24s ease;
 }
 
-.session-panel,
-.chat-panel__header,
-.message-stream,
-.input-console {
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #ffffff;
+.ai-chat-page--collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
 }
 
-.session-panel {
+.history-rail {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  padding: 20px;
+  padding: 18px 14px;
   box-sizing: border-box;
+  border-radius: 28px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #fbfaf8 100%);
+  box-shadow:
+    0 14px 30px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
   overflow: hidden;
 }
 
-.session-panel__header,
-.chat-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+.history-rail--collapsed {
+  padding: 18px 10px;
 }
 
-.session-panel__header h2,
-.chat-panel__header h1 {
+.history-rail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-rail__heading h2,
+.chat-workbench__title h1 {
   margin: 6px 0 0;
-  font-size: 24px;
-  line-height: 1.15;
-  color: rgba(0, 0, 0, 0.95);
+  font-size: 28px;
+  line-height: 1.1;
+  color: rgba(15, 23, 42, 0.96);
+}
+
+.history-rail__brand {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background: #eef5ff;
+  color: #0f62d6;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
 }
 
 .eyebrow {
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #a39e98;
+  color: #9a938c;
 }
 
-.new-chat-btn {
-  margin-top: 20px;
+.history-rail__new {
+  margin-top: 18px;
   width: 100%;
 }
 
-.session-list {
-  margin-top: 20px;
-  display: flex;
+.history-list {
   flex: 1;
   min-height: 0;
+  margin-top: 18px;
+  padding-right: 2px;
+  display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   overflow-y: auto;
-  padding-right: 4px;
 }
 
-.session-item {
+.history-item {
+  position: relative;
+}
+
+.history-item__button {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   width: 100%;
-  text-align: left;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: #ffffff;
-  border-radius: 14px;
-  padding: 14px;
+  border: none;
+  background: transparent;
+  border-radius: 18px;
+  padding: 12px 44px 12px 12px;
   box-sizing: border-box;
+  text-align: left;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, transform 0.2s ease;
   font: inherit;
+  color: inherit;
 }
 
-.session-item:hover {
-  border-color: rgba(0, 117, 222, 0.22);
-  transform: translateY(-1px);
+.history-item__button:hover {
+  background: rgba(15, 98, 214, 0.06);
 }
 
-.session-item.active {
-  border-color: #0075de;
-  background: #f2f9ff;
+.history-item.active .history-item__button {
+  background: #eaf3ff;
+  box-shadow: inset 0 0 0 1px rgba(15, 98, 214, 0.18);
 }
 
-.session-item__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: rgba(0, 0, 0, 0.9);
+.history-item__button:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
-.session-item__preview,
-.session-item__time {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #7d7771;
+.history-item--collapsed .history-item__button {
+  justify-content: center;
+  padding: 8px 0;
 }
 
-.session-empty,
-.empty-state {
+.history-item__avatar {
   display: grid;
   place-items: center;
-  text-align: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: #f2f6fb;
+  color: #0f62d6;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.history-item.active .history-item__avatar {
+  background: #0f62d6;
+  color: #ffffff;
+}
+
+.history-item__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-item__title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-item__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(15, 23, 42, 0.94);
+}
+
+.history-item__time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #9a938c;
+}
+
+.history-item__preview {
+  margin: 5px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.4;
   color: #7d7771;
 }
 
-.session-empty {
-  margin-top: 24px;
-  padding: 24px 12px;
+.history-item__delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
 }
 
-.session-empty p,
-.empty-state h3 {
+.history-item:hover .history-item__delete,
+.history-item.active .history-item__delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.history-empty {
+  margin-top: auto;
+  padding: 18px 10px;
+  text-align: center;
+  color: #8a837d;
+}
+
+.history-empty p {
   margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.session-empty span,
-.empty-state p {
-  margin-top: 8px;
-  font-size: 13px;
-  line-height: 1.7;
+.history-empty span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
-.chat-panel {
+.history-empty--collapsed {
+  display: grid;
+  place-items: center;
+  padding: 18px 0;
+}
+
+.history-empty__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #d0d7e2;
+}
+
+.chat-workbench {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
   height: 100%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #fdfcfb 100%);
+  box-shadow:
+    0 18px 38px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-.chat-panel__header {
-  padding: 20px 24px;
-  box-sizing: border-box;
+.chat-workbench__toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
 }
 
-.chat-panel__header-main,
-.chat-panel__header-actions {
+.chat-workbench__title,
+.chat-workbench__actions {
+  min-width: 0;
+}
+
+.chat-workbench__actions {
   display: flex;
   align-items: center;
-  min-width: 0;
+  gap: 12px;
 }
 
-.chat-panel__header-main > div {
-  min-width: 0;
-}
-
-.message-stream {
+.chat-workbench__messages {
   min-height: 0;
-  padding: 24px;
+  padding: 26px 28px 22px;
   box-sizing: border-box;
   overflow-y: auto;
-  overscroll-behavior: contain;
   background:
-    radial-gradient(circle at top left, rgba(0, 117, 222, 0.06), transparent 28%),
-    linear-gradient(180deg, #ffffff 0%, #fdfcfb 100%);
+    radial-gradient(circle at top left, rgba(15, 98, 214, 0.07), transparent 26%),
+    linear-gradient(180deg, #ffffff 0%, #fbfaf9 100%);
+}
+
+.chat-workbench__composer {
+  padding: 18px 24px 24px;
+  box-sizing: border-box;
+  border-top: 1px solid rgba(15, 23, 42, 0.07);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .empty-state {
   min-height: 100%;
+  display: grid;
+  place-items: center;
   padding: 48px 24px;
+  text-align: center;
+  color: #7d7771;
 }
 
 .empty-state__badge {
   display: inline-flex;
   align-items: center;
   padding: 6px 12px;
-  border-radius: 9999px;
-  background: #f2f9ff;
-  color: #0075de;
+  border-radius: 999px;
+  background: #eef5ff;
+  color: #0f62d6;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.empty-state h3 {
+  margin: 14px 0 0;
+  font-size: 28px;
+  line-height: 1.2;
+  color: rgba(15, 23, 42, 0.96);
+}
+
+.empty-state p {
+  margin: 10px 0 0;
+  max-width: 720px;
+  font-size: 15px;
+  line-height: 1.8;
 }
 
 .message-row {
   display: flex;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .message-row:last-child {
@@ -695,31 +960,31 @@ function scrollToBottom() {
 }
 
 .message-bubble {
-  max-width: min(820px, 78%);
-  padding: 12px 16px;
+  max-width: min(920px, 82%);
+  padding: 14px 18px;
   font-size: 15px;
   line-height: 1.75;
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.03),
-    0 6px 20px rgba(0, 0, 0, 0.03);
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 12px 28px rgba(15, 23, 42, 0.04);
 }
 
 .message-bubble--assistant {
-  border-radius: 16px 16px 16px 4px;
-  background: #f6f5f4;
-  color: rgba(0, 0, 0, 0.88);
+  border-radius: 18px 18px 18px 6px;
+  background: #f6f5f3;
+  color: rgba(15, 23, 42, 0.9);
 }
 
 .message-bubble--assistant :deep(table) {
   width: 100%;
+  margin: 10px 0;
   border-collapse: collapse;
-  margin: 8px 0;
   font-size: 13px;
 }
 
 .message-bubble--assistant :deep(th),
 .message-bubble--assistant :deep(td) {
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.08);
   padding: 8px 10px;
   text-align: left;
 }
@@ -739,21 +1004,21 @@ function scrollToBottom() {
 }
 
 .message-bubble--user {
-  border-radius: 16px 16px 4px 16px;
-  background: #0075de;
+  border-radius: 18px 18px 6px 18px;
+  background: linear-gradient(135deg, #2b7fff 0%, #0f62d6 100%);
   color: #ffffff;
 }
 
 .hitl-card {
-  width: min(820px, 90%);
-  border: 2px solid #dd5b00;
-  border-radius: 12px;
+  width: min(920px, 92%);
+  border: 1px solid rgba(221, 91, 0, 0.26);
+  border-radius: 18px;
   background: #ffffff;
-  padding: 16px;
+  padding: 18px;
   box-sizing: border-box;
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.03),
-    0 8px 26px rgba(0, 0, 0, 0.05);
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 12px 28px rgba(15, 23, 42, 0.04);
 }
 
 .hitl-card__header,
@@ -767,11 +1032,12 @@ function scrollToBottom() {
 .hitl-card__title {
   font-size: 15px;
   font-weight: 700;
+  color: rgba(15, 23, 42, 0.94);
 }
 
 .hitl-card__status {
   font-size: 12px;
-  color: #a39e98;
+  color: #9a938c;
 }
 
 .hitl-card__body {
@@ -783,69 +1049,63 @@ function scrollToBottom() {
 
 .hitl-column {
   padding: 16px;
-  border-radius: 10px;
+  border-radius: 14px;
 }
 
 .hitl-column--old {
-  background: #f6f5f4;
+  background: #f6f5f3;
 }
 
 .hitl-column--new {
-  background: #f2f9ff;
+  background: #edf5ff;
 }
 
 .hitl-label {
   display: inline-block;
   margin-bottom: 8px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   color: #7d7771;
 }
 
 .hitl-column--new .hitl-label {
-  color: #0075de;
+  color: #0f62d6;
 }
 
 .hitl-column p {
   margin: 0;
   font-size: 14px;
   line-height: 1.7;
-  color: rgba(0, 0, 0, 0.82);
+  color: rgba(15, 23, 42, 0.82);
 }
 
 .hitl-card__footer {
-  margin-top: 14px;
+  margin-top: 16px;
   justify-content: flex-end;
-}
-
-.input-console {
-  padding: 16px 20px;
-  box-sizing: border-box;
-  overflow: hidden;
 }
 
 .chip-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 12px;
-  overflow-x: auto;
+  margin-bottom: 14px;
 }
 
 .prompt-chip {
-  flex-shrink: 0;
   border: none;
-  border-radius: 9999px;
+  border-radius: 999px;
   padding: 8px 14px;
-  background: #f6f5f4;
-  color: rgba(0, 0, 0, 0.78);
+  background: #f3f2ef;
+  color: rgba(15, 23, 42, 0.82);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .prompt-chip:hover {
-  background: #f2f9ff;
-  color: #0075de;
+  background: #eaf3ff;
+  color: #0f62d6;
 }
 
 .composer {
@@ -859,13 +1119,17 @@ function scrollToBottom() {
   display: flex;
   align-items: center;
 }
+
+.chat-workbench__composer :deep(.el-textarea__inner) {
+  min-height: 64px;
+  max-height: 160px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: none;
+}
+
+.chat-workbench__composer :deep(.el-textarea__inner:focus) {
+  border-color: rgba(15, 98, 214, 0.42);
+}
 </style>
--->
-
-<script setup lang="ts">
-import AiChatWorkbench from './components/AiChatWorkbenchChatgpt.vue'
-</script>
-
-<template>
-  <AiChatWorkbench />
-</template>

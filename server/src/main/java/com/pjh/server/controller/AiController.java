@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -49,5 +50,11 @@ public class AiController {
     @GetMapping("/sessions/{sessionId}/messages")
     public Result<List<AiChatMessageVO>> listMessages(@PathVariable String sessionId) {
         return Result.success(aiService.listMessages(sessionId));
+    }
+
+    @DeleteMapping("/sessions/{sessionId}")
+    public Result<Void> deleteSession(@PathVariable String sessionId) {
+        aiService.deleteSession(sessionId);
+        return Result.success();
     }
 }

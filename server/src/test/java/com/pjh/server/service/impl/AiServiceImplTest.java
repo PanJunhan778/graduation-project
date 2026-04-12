@@ -29,6 +29,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -141,6 +142,17 @@ class AiServiceImplTest {
 
         assertThat(payload.code()).isEqualTo(500);
         assertThat(payload.message()).isEqualTo("AI \u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528");
+    }
+
+    @Test
+    void deleteSessionShouldUseCurrentTenantScope() {
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(5L);
+        when(currentSessionService.requireCurrentUserId()).thenReturn(8L);
+
+        aiService.deleteSession("session-9");
+
+        verify(aiHistoryService).deleteSession(5L, 8L, "session-9");
+        verifyNoMoreInteractions(aiHistoryService);
     }
 
     private static class NoopSseEmitter extends SseEmitter {

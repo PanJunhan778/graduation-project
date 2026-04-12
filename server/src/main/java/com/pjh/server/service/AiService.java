@@ -18,4 +18,6 @@ public interface AiService {
     List<AiSessionVO> listSessions();
 
     List<AiChatMessageVO> listMessages(String sessionId);
+
+    void deleteSession(String sessionId);
 }
