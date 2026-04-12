@@ -127,7 +127,9 @@ CREATE TABLE IF NOT EXISTS `ai_chat_log` (
     `user_id`       BIGINT       NOT NULL COMMENT '发起对话的用户ID',
     `session_id`    VARCHAR(36)  NOT NULL COMMENT '会话UUID',
     `role`          VARCHAR(20)  NOT NULL COMMENT 'user/assistant/system',
+    `message_type`  VARCHAR(32)  NOT NULL DEFAULT 'text' COMMENT 'text/markdown/action_required/action_result',
     `content`       LONGTEXT     NOT NULL COMMENT '消息内容',
+    `metadata_json` LONGTEXT     NULL COMMENT '元数据JSON',
     `create_time`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `is_deleted`    TINYINT      NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
@@ -135,6 +137,29 @@ CREATE TABLE IF NOT EXISTS `ai_chat_log` (
     INDEX `idx_session_id` (`session_id`),
     INDEX `idx_create_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI会话记录表';
+
+CREATE TABLE IF NOT EXISTS `ai_pending_action` (
+    `id`              BIGINT       NOT NULL AUTO_INCREMENT,
+    `company_id`      BIGINT       NOT NULL COMMENT '公司ID',
+    `user_id`         BIGINT       NOT NULL COMMENT '发起动作的用户ID',
+    `session_id`      VARCHAR(36)  NOT NULL COMMENT '会话UUID',
+    `chat_message_id` BIGINT       NULL COMMENT '关联卡片消息ID',
+    `action_type`     VARCHAR(64)  NOT NULL COMMENT '动作类型',
+    `confirm_token`   VARCHAR(64)  NOT NULL COMMENT '确认令牌',
+    `old_value`       LONGTEXT     NULL COMMENT '旧值',
+    `proposed_value`  LONGTEXT     NOT NULL COMMENT '拟更新值',
+    `status`          VARCHAR(20)  NOT NULL COMMENT 'pending/approved/rejected/expired',
+    `expires_at`      DATETIME     NOT NULL COMMENT '过期时间',
+    `processed_by`    BIGINT       NULL COMMENT '处理人ID',
+    `processed_at`    DATETIME     NULL COMMENT '处理时间',
+    `created_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `is_deleted`      TINYINT      NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `uk_confirm_token` (`confirm_token`),
+    INDEX `idx_company_status` (`company_id`, `status`),
+    INDEX `idx_session_id` (`session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI待确认动作表';
 
 -- ============================================
 -- 预置数据：系统管理员账号

@@ -20,7 +20,11 @@ public class AiChatLog {
 
     private String role;
 
+    private String messageType;
+
     private String content;
+
+    private String metadataJson;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

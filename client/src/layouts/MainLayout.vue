@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
 import Topbar from './components/Topbar.vue'
 
 const sidebarCollapsed = ref(false)
+const route = useRoute()
+
+const pageContainerClass = computed(() => ({
+  'page-container--immersive': route.name === 'AiChat',
+}))
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -15,7 +21,7 @@ function toggleSidebar() {
     <Sidebar :collapsed="sidebarCollapsed" @toggle="toggleSidebar" />
     <div class="main-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
       <Topbar />
-      <div class="page-container">
+      <div class="page-container" :class="pageContainerClass">
         <router-view />
       </div>
     </div>
@@ -25,7 +31,8 @@ function toggleSidebar() {
 <style scoped>
 .main-layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   background: #f6f5f4;
 }
 
@@ -35,8 +42,9 @@ function toggleSidebar() {
   transition: margin-left 0.3s ease, width 0.3s ease;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  overflow-x: hidden;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .main-content.sidebar-collapsed {
@@ -48,5 +56,20 @@ function toggleSidebar() {
   flex: 1;
   padding: 24px;
   overflow-y: auto;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.page-container--immersive {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-container--immersive > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 </style>

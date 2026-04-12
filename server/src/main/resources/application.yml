@@ -34,3 +34,11 @@ sa-token:
 logging:
   level:
     com.pjh.server: debug
+
+app:
+  ai:
+    enabled: true
+    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api-key: "sk-06f9ef62c1d74bd0bc9407284aa66b12"
+    model: qwen3.5-flash
+    timeout: 60s

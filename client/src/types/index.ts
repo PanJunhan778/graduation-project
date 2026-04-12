@@ -309,3 +309,76 @@ export interface TaxDashboardVO {
   taxTypeStructure: TaxTypeStructureItem[]
   statusSummary: TaxStatusSummaryItem[]
 }
+
+export type AiMessageType = 'text' | 'markdown' | 'action_required' | 'action_result'
+export type AiActorRole = 'user' | 'assistant' | 'system'
+export type AiActionStatus = 'pending' | 'approved' | 'rejected' | 'expired'
+
+export interface AiActionMetadata {
+  actionId: number
+  toolName: string
+  oldValue: string
+  proposedValue: string
+  confirmToken?: string
+  status: AiActionStatus
+  expiresAt?: string
+  processedAt?: string | null
+}
+
+export interface AiActionResultMetadata {
+  actionId: number
+  status: AiActionStatus
+}
+
+export interface AiChatRequest {
+  sessionId?: string
+  message: string
+}
+
+export interface AiConfirmActionRequest {
+  confirmToken: string
+  isApproved: boolean
+}
+
+export interface AiConfirmActionVO {
+  actionId: number
+  status: AiActionStatus
+  resultMessage: string
+}
+
+export interface AiSessionVO {
+  sessionId: string
+  title: string
+  lastMessagePreview: string
+  lastMessageTime: string
+}
+
+export interface AiChatMessageVO {
+  id: number
+  role: AiActorRole
+  messageType: AiMessageType
+  content: string
+  metadata: Record<string, unknown> | null
+  createTime: string
+}
+
+export interface AiSessionEventPayload {
+  sessionId: string
+}
+
+export interface AiTokenEventPayload {
+  content: string
+}
+
+export interface AiDoneEventPayload {
+  messageId: number
+  content: string
+}
+
+export interface AiActionRequiredPayload {
+  actionId: number
+  toolName: string
+  oldValue: string
+  proposedValue: string
+  confirmToken: string
+}
