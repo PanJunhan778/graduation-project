@@ -2,6 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
+import AiWorkbenchSkeleton from '@/components/common/AiWorkbenchSkeleton.vue'
+import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
   chatAi,
   confirmAiAction,
@@ -49,6 +51,7 @@ const confirmingActionId = ref<number | null>(null)
 const deletingSessionId = ref('')
 const isHistoryCollapsed = ref(false)
 const messageStreamRef = ref<HTMLElement | null>(null)
+const hasInitialized = ref(false)
 
 const activeSession = computed(
   () => sessions.value.find((item) => item.sessionId === activeSessionId.value) || null,
@@ -62,6 +65,9 @@ const toolbarStatus = computed(() => {
   }
   return activeSessionId.value ? '会话已连接' : '等待你的第一条消息'
 })
+const showInitialSkeleton = useDelayedLoading(
+  () => !hasInitialized.value && (loadingSessions.value || loadingMessages.value),
+)
 
 watch(
   messages,
@@ -92,6 +98,7 @@ async function initializePage() {
     await refreshSessions(undefined, { reloadMessages: true })
   } finally {
     loadingSessions.value = false
+    hasInitialized.value = true
   }
 }
 
@@ -399,7 +406,8 @@ function scrollToBottom() {
 </script>
 
 <template>
-  <div class="ai-chat-page" :class="{ 'ai-chat-page--collapsed': isHistoryCollapsed }">
+  <AiWorkbenchSkeleton v-if="showInitialSkeleton" />
+  <div v-else class="ai-chat-page" :class="{ 'ai-chat-page--collapsed': isHistoryCollapsed }">
     <aside class="history-rail" :class="{ 'history-rail--collapsed': isHistoryCollapsed }">
       <header class="history-rail__header">
         <div v-if="!isHistoryCollapsed" class="history-rail__heading">
@@ -425,60 +433,81 @@ function scrollToBottom() {
         <span v-if="!isHistoryCollapsed">新对话</span>
       </el-button>
 
-      <div v-loading="loadingSessions" class="history-list">
-        <div
-          v-for="session in sessions"
-          :key="session.sessionId"
-          class="history-item"
-          :class="{
-            active: activeSessionId === session.sessionId,
-            'history-item--collapsed': isHistoryCollapsed,
-          }"
-        >
-          <button
-            class="history-item__button"
-            :title="session.title"
-            :disabled="deletingSessionId === session.sessionId"
-            @click="selectSession(session.sessionId)"
+      <div class="history-list">
+        <template v-if="loadingSessions && sessions.length === 0">
+          <div
+            v-for="item in 5"
+            :key="`history-skeleton-${item}`"
+            class="history-item history-item--skeleton"
+            :class="{ 'history-item--collapsed': isHistoryCollapsed }"
           >
-            <span class="history-item__avatar">{{ getSessionInitial(session.title) }}</span>
-
-            <div v-if="!isHistoryCollapsed" class="history-item__content">
-              <div class="history-item__title-row">
-                <span class="history-item__title">{{ session.title }}</span>
-                <span class="history-item__time">{{ formatTime(session.lastMessageTime) }}</span>
+            <div class="history-item__button">
+              <span class="history-item__avatar history-item__avatar--skeleton" />
+              <div v-if="!isHistoryCollapsed" class="history-item__content">
+                <div class="history-item__title-row">
+                  <span class="history-skeleton history-skeleton--title" />
+                </div>
+                <span class="history-skeleton history-skeleton--line" />
               </div>
-              <p class="history-item__preview">{{ session.lastMessagePreview || '暂无消息' }}</p>
             </div>
-          </button>
+          </div>
+        </template>
 
-          <el-button
-            v-if="!isHistoryCollapsed"
-            class="history-item__delete"
-            text
-            circle
-            title="删除对话"
-            :loading="deletingSessionId === session.sessionId"
-            :disabled="deletingSessionId === session.sessionId"
-            @click.stop="handleDeleteSession(session)"
+        <template v-else>
+          <div
+            v-for="session in sessions"
+            :key="session.sessionId"
+            class="history-item"
+            :class="{
+              active: activeSessionId === session.sessionId,
+              'history-item--collapsed': isHistoryCollapsed,
+            }"
           >
-            <el-icon><Delete /></el-icon>
-          </el-button>
-        </div>
+            <button
+              class="history-item__button"
+              :title="session.title"
+              :disabled="deletingSessionId === session.sessionId"
+              @click="selectSession(session.sessionId)"
+            >
+              <span class="history-item__avatar">{{ getSessionInitial(session.title) }}</span>
 
-        <div
-          v-if="!loadingSessions && sessions.length === 0"
-          class="history-empty"
-          :class="{ 'history-empty--collapsed': isHistoryCollapsed }"
-        >
-          <template v-if="isHistoryCollapsed">
-            <span class="history-empty__dot" />
-          </template>
-          <template v-else>
-            <p>暂无历史对话</p>
-            <span>从右侧发起一轮新对话后，这里会自动沉淀历史记录。</span>
-          </template>
-        </div>
+              <div v-if="!isHistoryCollapsed" class="history-item__content">
+                <div class="history-item__title-row">
+                  <span class="history-item__title">{{ session.title }}</span>
+                  <span class="history-item__time">{{ formatTime(session.lastMessageTime) }}</span>
+                </div>
+                <p class="history-item__preview">{{ session.lastMessagePreview || '暂无消息' }}</p>
+              </div>
+            </button>
+
+            <el-button
+              v-if="!isHistoryCollapsed"
+              class="history-item__delete"
+              text
+              circle
+              title="删除对话"
+              :loading="deletingSessionId === session.sessionId"
+              :disabled="deletingSessionId === session.sessionId"
+              @click.stop="handleDeleteSession(session)"
+            >
+              <el-icon><Delete /></el-icon>
+            </el-button>
+          </div>
+
+          <div
+            v-if="!loadingSessions && sessions.length === 0"
+            class="history-empty"
+            :class="{ 'history-empty--collapsed': isHistoryCollapsed }"
+          >
+            <template v-if="isHistoryCollapsed">
+              <span class="history-empty__dot" />
+            </template>
+            <template v-else>
+              <p>暂无历史对话</p>
+              <span>从右侧发起一轮新对话后，这里会自动沉淀历史记录。</span>
+            </template>
+          </div>
+        </template>
       </div>
     </aside>
 
@@ -510,9 +539,26 @@ function scrollToBottom() {
       </header>
 
       <section class="chat-workbench__body">
-        <section ref="messageStreamRef" v-loading="loadingMessages" class="chat-workbench__messages">
+        <section ref="messageStreamRef" class="chat-workbench__messages">
           <div class="chat-workbench__thread">
-            <div v-if="isEmptyConversation" class="empty-state">
+            <div v-if="loadingMessages && messages.length === 0" class="message-skeleton-stack">
+              <div class="message-skeleton message-skeleton--assistant">
+                <span class="message-skeleton__line long" />
+                <span class="message-skeleton__line medium" />
+                <span class="message-skeleton__line short" />
+              </div>
+              <div class="message-skeleton message-skeleton--user">
+                <span class="message-skeleton__line medium" />
+                <span class="message-skeleton__line short" />
+              </div>
+              <div class="message-skeleton message-skeleton--assistant">
+                <span class="message-skeleton__line long" />
+                <span class="message-skeleton__line long" />
+                <span class="message-skeleton__line medium" />
+              </div>
+            </div>
+
+            <div v-else-if="isEmptyConversation" class="empty-state">
               <div class="empty-state__badge">Owner AI Workspace</div>
               <h3>把经营问题直接交给 AI</h3>
               <p>
@@ -771,6 +817,49 @@ function scrollToBottom() {
   color: #ffffff;
 }
 
+.history-item--skeleton .history-item__button {
+  cursor: default;
+}
+
+.history-item__avatar--skeleton,
+.history-skeleton,
+.message-skeleton__line {
+  position: relative;
+  overflow: hidden;
+  background: #efece9;
+}
+
+.history-item__avatar--skeleton::after,
+.history-skeleton::after,
+.message-skeleton__line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
+  animation: shimmer 1.4s ease infinite;
+}
+
+.history-item__avatar--skeleton {
+  border-radius: 12px;
+}
+
+.history-skeleton {
+  display: block;
+  border-radius: 999px;
+}
+
+.history-skeleton--title {
+  width: 72%;
+  height: 14px;
+}
+
+.history-skeleton--line {
+  width: 100%;
+  height: 12px;
+  margin-top: 8px;
+}
+
 .history-item__content {
   flex: 1;
   min-width: 0;
@@ -946,6 +1035,49 @@ function scrollToBottom() {
 .chat-workbench__thread {
   width: min(100%, 980px);
   margin: 0 auto;
+}
+
+.message-skeleton-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.message-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 72%;
+  padding: 18px;
+  border-radius: 24px;
+}
+
+.message-skeleton--assistant {
+  background: #f6f7f9;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.message-skeleton--user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, rgba(43, 127, 255, 0.24), rgba(15, 98, 214, 0.2));
+}
+
+.message-skeleton__line {
+  display: block;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.message-skeleton__line.long {
+  width: 100%;
+}
+
+.message-skeleton__line.medium {
+  width: 74%;
+}
+
+.message-skeleton__line.short {
+  width: 48%;
 }
 
 .empty-state {
@@ -1273,6 +1405,12 @@ function scrollToBottom() {
   }
   50% {
     opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
   }
 }
 </style>

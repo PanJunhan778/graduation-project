@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useUserStore } from '@/store/user'
+import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
   getFinanceDashboard,
   getHrDashboard,
@@ -155,6 +156,7 @@ const currentTabLoading = computed(() => {
   if (activeTab.value === 'hr') return hrState.loading
   return taxState.loading
 })
+const showCurrentLoadingSkeleton = useDelayedLoading(() => currentTabLoading.value && !currentTabLoaded.value)
 const canExportDashboard = computed(() =>
   currentTabLoaded.value &&
   !currentTabLoading.value &&
@@ -1090,7 +1092,7 @@ function toNumber(value: number | string | undefined | null) {
             </div>
           </div>
 
-          <div v-if="financeState.loading && !financeState.data" class="loading-grid">
+            <div v-if="financeState.loading && !financeState.data && showCurrentLoadingSkeleton" class="loading-grid">
             <div class="loading-card ds-card" />
             <div class="loading-card ds-card" />
             <div class="loading-panel ds-card" />
@@ -1183,7 +1185,7 @@ function toNumber(value: number | string | undefined | null) {
             </div>
           </div>
 
-          <div v-if="hrState.loading && !hrState.data" class="loading-grid">
+            <div v-if="hrState.loading && !hrState.data && showCurrentLoadingSkeleton" class="loading-grid">
             <div class="loading-card ds-card" />
             <div class="loading-card ds-card" />
             <div class="loading-panel ds-card" />
@@ -1276,7 +1278,7 @@ function toNumber(value: number | string | undefined | null) {
             </div>
           </div>
 
-          <div v-if="taxState.loading && !taxState.data" class="loading-grid">
+            <div v-if="taxState.loading && !taxState.data && showCurrentLoadingSkeleton" class="loading-grid">
             <div class="loading-card ds-card" />
             <div class="loading-card ds-card" />
             <div class="loading-panel ds-card" />

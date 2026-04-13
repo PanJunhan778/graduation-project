@@ -27,4 +27,12 @@ public class CurrentSessionService {
             throw new BusinessException("当前公司信息无效");
         }
     }
+
+    public String requireCurrentRole() {
+        Object role = StpUtil.getExtra(Constants.JWT_ROLE_KEY);
+        if (role == null) {
+            throw new BusinessException("无法获取当前用户角色");
+        }
+        return role.toString();
+    }
 }

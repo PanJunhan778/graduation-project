@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Delete, Edit, Loading, Plus, Search, Upload, Warning } from '@element-plus/icons-vue'
+import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
+import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
   batchDeleteEmployee,
   createEmployee,
@@ -15,11 +17,13 @@ import { downloadImportErrorReport } from '@/utils/excel'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const loading = ref(false)
+const hasLoaded = ref(false)
 const tableData = ref<EmployeeRecordVO[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const selectedRows = ref<EmployeeRecordVO[]>([])
+const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
 
 const filterDepartment = ref('')
 const filterStatus = ref<number | undefined>(undefined)
@@ -41,6 +45,7 @@ async function fetchList() {
     tableData.value = res.data.records
     total.value = res.data.total
   } finally {
+    hasLoaded.value = true
     loading.value = false
   }
 }
@@ -262,7 +267,14 @@ onMounted(fetchList)
 </script>
 
 <template>
-  <div class="employee-manage">
+  <PageTableSkeleton
+    v-if="showInitialSkeleton"
+    title="员工名册"
+    :action-count="3"
+    :filter-count="2"
+    :row-count="8"
+  />
+  <div v-else class="employee-manage">
     <div class="page-header">
       <h2 class="page-title">员工名册</h2>
     </div>
@@ -309,7 +321,6 @@ onMounted(fetchList)
     </div>
 
     <el-table
-      v-loading="loading"
       :data="tableData"
       style="width: 100%"
       :header-cell-style="{

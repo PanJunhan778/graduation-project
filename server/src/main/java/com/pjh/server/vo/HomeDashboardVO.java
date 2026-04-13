@@ -15,6 +15,7 @@ public class HomeDashboardVO {
     private boolean hasUnpaidWarning;
     private List<MonthlyTrendPoint> monthlyTrend;
     private List<TaxCalendarItem> taxCalendar;
+    private SetupStatus setupStatus;
 
     @Data
     public static class MonthlyTrendPoint {
@@ -30,5 +31,11 @@ public class HomeDashboardVO {
         private String taxType;
         private Integer status;
         private BigDecimal amount;
+    }
+
+    @Data
+    public static class SetupStatus {
+        private boolean hasStaffAccount;
+        private boolean hasFinanceRecord;
     }
 }

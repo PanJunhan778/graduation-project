@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useUserStore } from '@/store/user'
-import { SwitchButton } from '@element-plus/icons-vue'
+import { SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import ProfileCenterDrawer from './ProfileCenterDrawer.vue'
 
 const userStore = useUserStore()
+const profileDrawerVisible = ref(false)
 
 const isBusinessUser = () => userStore.role === 'owner' || userStore.role === 'staff'
 
@@ -26,6 +29,10 @@ function getRoleName(role: string): string {
     staff: '录入员',
   }
   return map[role] || role
+}
+
+function openProfileCenter() {
+  profileDrawerVisible.value = true
 }
 </script>
 
@@ -57,6 +64,9 @@ function getRoleName(role: string): string {
                 <div class="user-role">{{ getRoleName(userStore.role) }}</div>
               </div>
             </el-dropdown-item>
+            <el-dropdown-item :icon="UserFilled" @click="openProfileCenter">
+              个人中心
+            </el-dropdown-item>
             <el-dropdown-item divided :icon="SwitchButton" @click="handleLogout">
               退出登录
             </el-dropdown-item>
@@ -64,6 +74,8 @@ function getRoleName(role: string): string {
         </template>
       </el-dropdown>
     </div>
+
+    <ProfileCenterDrawer v-model="profileDrawerVisible" />
   </div>
 </template>
 

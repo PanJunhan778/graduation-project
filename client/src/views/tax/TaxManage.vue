@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Delete, Edit, Loading, Plus, Search, Upload, Warning } from '@element-plus/icons-vue'
+import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
+import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
   batchDeleteTax,
   createTax,
@@ -15,11 +17,13 @@ import type { FormInstance, FormRules } from 'element-plus'
 import type { ImportError, TaxForm, TaxPaymentStatus, TaxRecordVO } from '@/types'
 
 const loading = ref(false)
+const hasLoaded = ref(false)
 const tableData = ref<TaxRecordVO[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const selectedRows = ref<TaxRecordVO[]>([])
+const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
 
 const filterPaymentStatus = ref<TaxPaymentStatus | undefined>(undefined)
 const filterTaxPeriod = ref('')
@@ -56,6 +60,7 @@ async function fetchList() {
     tableData.value = res.data.records
     total.value = res.data.total
   } finally {
+    hasLoaded.value = true
     loading.value = false
   }
 }
@@ -335,7 +340,14 @@ onMounted(fetchList)
 </script>
 
 <template>
-  <div class="tax-manage">
+  <PageTableSkeleton
+    v-if="showInitialSkeleton"
+    title="税务档案"
+    :action-count="3"
+    :filter-count="3"
+    :row-count="8"
+  />
+  <div v-else class="tax-manage">
     <div class="page-header">
       <h2 class="page-title">税务档案</h2>
     </div>
@@ -392,7 +404,6 @@ onMounted(fetchList)
     </div>
 
     <el-table
-      v-loading="loading"
       :data="tableData"
       style="width: 100%"
       :header-cell-style="{

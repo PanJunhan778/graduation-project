@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { RefreshRight, Search } from '@element-plus/icons-vue'
+import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
+import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import { getAuditLogList } from '@/api/audit'
 import type { AuditLogVO, AuditModule, AuditOperationType } from '@/types'
 
@@ -14,6 +16,7 @@ const tableData = ref<AuditLogVO[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
+const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
 
 const filters = reactive<{
   module: AuditModule | ''
@@ -214,7 +217,16 @@ onMounted(initFromRouteQuery)
 </script>
 
 <template>
-  <div class="audit-manage">
+  <PageTableSkeleton
+    v-if="showInitialSkeleton"
+    title="审计日志"
+    subtitle="默认展示最近 7 天的新增、编辑、删除日志；不记录查询行为"
+    :action-count="2"
+    :filter-count="3"
+    :show-search="false"
+    :row-count="8"
+  />
+  <div v-else class="audit-manage">
     <div class="page-header">
       <div>
         <h2 class="page-title">审计日志</h2>
@@ -271,10 +283,9 @@ onMounted(initFromRouteQuery)
     </div>
 
     <template v-else>
-      <el-table
-        v-loading="loading"
-        :data="tableData"
-        style="width: 100%"
+    <el-table
+      :data="tableData"
+      style="width: 100%"
         :header-cell-style="{
           background: '#f6f5f4',
           color: '#615d59',

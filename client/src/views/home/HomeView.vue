@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import { getHomeDashboard } from '@/api/dashboard'
 import { exportSectionsToPdf, formatPdfTimestamp } from '@/utils/pdf'
 import type { Component } from 'vue'
@@ -22,6 +24,7 @@ import { init } from 'echarts/core'
 use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const userStore = useUserStore()
+const router = useRouter()
 
 const loading = ref(true)
 const exporting = ref(false)
@@ -41,6 +44,7 @@ const currentPeriodLabel = computed(() => {
   const monthLabel = `${now.getFullYear()} 年 ${String(now.getMonth() + 1).padStart(2, '0')} 月`
   return `${monthLabel}经营快照`
 })
+const showLoadingSkeleton = useDelayedLoading(() => loading.value && !dashboard.value && !errorMessage.value)
 
 const hasAnyData = computed(() => {
   const data = dashboard.value
@@ -51,6 +55,34 @@ const hasAnyData = computed(() => {
   return data.taxCalendar.length > 0 || data.monthlyTrend.some((point) =>
     toNumber(point.income) !== 0 || toNumber(point.expense) !== 0 || toNumber(point.profit) !== 0,
   )
+})
+
+const startupTasks = computed(() => {
+  const setupStatus = dashboard.value?.setupStatus
+  if (!setupStatus) return []
+
+  return [
+    {
+      key: 'staff',
+      title: '创建财务账号',
+      description: setupStatus.hasStaffAccount
+        ? '已存在可录入的员工账号，可以继续安排录入流程。'
+        : '先去用户管理为录入同学创建账号，后续才能分工录入流水。',
+      actionText: '去用户管理',
+      to: '/users',
+      completed: setupStatus.hasStaffAccount,
+    },
+    {
+      key: 'finance',
+      title: '导入第一批流水',
+      description: setupStatus.hasFinanceRecord
+        ? '财务账本已有流水，首页将自动生成趋势和税务提醒。'
+        : '打开财务账本，用 Excel 批量导入第一批收入与支出流水。',
+      actionText: '去财务账本',
+      to: '/finance',
+      completed: setupStatus.hasFinanceRecord,
+    },
+  ]
 })
 
 const kpiCards = computed(() => {
@@ -182,6 +214,10 @@ function normalizeDashboard(data: HomeDashboardVO): HomeDashboardVO {
     netProfit: toNumber(data.netProfit),
     unpaidTax: toNumber(data.unpaidTax),
     hasUnpaidWarning: Boolean(data.hasUnpaidWarning),
+    setupStatus: {
+      hasStaffAccount: Boolean(data.setupStatus?.hasStaffAccount),
+      hasFinanceRecord: Boolean(data.setupStatus?.hasFinanceRecord),
+    },
     monthlyTrend: (data.monthlyTrend || []).map((point) => ({
       month: point.month,
       income: toNumber(point.income),
@@ -387,6 +423,10 @@ function getTaxStatusClass(status: TaxCalendarItem['status']) {
   return 'is-unpaid'
 }
 
+function navigateTo(path: string) {
+  router.push(path)
+}
+
 function toNumber(value: number | string | undefined | null) {
   const numeric = Number(value ?? 0)
   return Number.isFinite(numeric) ? numeric : 0
@@ -412,7 +452,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="home-view">
-    <template v-if="loading">
+    <template v-if="showLoadingSkeleton">
       <div class="hero-card hero-card-skeleton ds-card">
         <div class="skeleton skeleton-pill" />
         <div class="skeleton skeleton-title" />
@@ -506,8 +546,25 @@ onBeforeUnmount(() => {
       </section>
 
       <div v-if="!hasAnyData" class="state-panel ds-card">
-        <h2>驾驶舱已就绪，但还没有经营数据</h2>
-        <p>先录入财务流水或税务档案，首页会自动生成趋势图和税务时间轴。</p>
+        <h2>驾驶舱已就绪，先完成企业启动动作</h2>
+        <p>只要补齐账号和首批流水，首页会自动生成趋势图、利润快照和税务时间轴。</p>
+
+        <div class="startup-task-grid">
+          <button
+            v-for="task in startupTasks"
+            :key="task.key"
+            class="startup-task"
+            :class="{ 'is-complete': task.completed }"
+            @click="navigateTo(task.to)"
+          >
+            <div class="startup-task__top">
+              <span class="startup-task__badge">{{ task.completed ? '已完成' : '待完成' }}</span>
+              <span class="startup-task__cta">{{ task.actionText }}</span>
+            </div>
+            <h3>{{ task.title }}</h3>
+            <p>{{ task.description }}</p>
+          </button>
+        </div>
       </div>
 
       <section v-else class="content-grid">
@@ -1054,6 +1111,81 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
+.startup-task-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.startup-task {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 18px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.startup-task:hover {
+  transform: translateY(-1px);
+  border-color: rgba(0, 117, 222, 0.24);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
+}
+
+.startup-task.is-complete {
+  background: linear-gradient(135deg, rgba(42, 157, 153, 0.08), #ffffff 62%);
+  border-color: rgba(42, 157, 153, 0.24);
+}
+
+.startup-task__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.startup-task__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  background: #f6f5f4;
+  color: #615d59;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.startup-task.is-complete .startup-task__badge {
+  background: rgba(42, 157, 153, 0.14);
+  color: #2a9d99;
+}
+
+.startup-task__cta {
+  color: #0075de;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.startup-task h3 {
+  margin-top: 14px;
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.94);
+}
+
+.startup-task p {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #615d59;
+}
+
 .skeleton {
   position: relative;
   overflow: hidden;
@@ -1305,6 +1437,10 @@ onBeforeUnmount(() => {
   }
 
   .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .startup-task-grid {
     grid-template-columns: 1fr;
   }
 }

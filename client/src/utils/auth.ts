@@ -1,5 +1,7 @@
 const TOKEN_KEY = 'ems_token'
 const USER_KEY = 'ems_user'
+const LOGIN_SESSION_KEY = 'ems_login_session_id'
+const STAFF_FINANCE_GUIDE_SEEN_KEY = 'ems_staff_finance_guide_seen_session_id'
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -31,7 +33,33 @@ export function removeUserInfo(): void {
   localStorage.removeItem(USER_KEY)
 }
 
+export function getLoginSessionId(): string | null {
+  return localStorage.getItem(LOGIN_SESSION_KEY)
+}
+
+export function setLoginSessionId(sessionId: string): void {
+  localStorage.setItem(LOGIN_SESSION_KEY, sessionId)
+}
+
+export function removeLoginSessionId(): void {
+  localStorage.removeItem(LOGIN_SESSION_KEY)
+}
+
+export function getStaffFinanceGuideSeenSessionId(): string | null {
+  return localStorage.getItem(STAFF_FINANCE_GUIDE_SEEN_KEY)
+}
+
+export function setStaffFinanceGuideSeenSessionId(sessionId: string): void {
+  localStorage.setItem(STAFF_FINANCE_GUIDE_SEEN_KEY, sessionId)
+}
+
+export function removeStaffFinanceGuideSeenSessionId(): void {
+  localStorage.removeItem(STAFF_FINANCE_GUIDE_SEEN_KEY)
+}
+
 export function clearAuth(): void {
   removeToken()
   removeUserInfo()
+  removeLoginSessionId()
+  removeStaffFinanceGuideSeenSessionId()
 }

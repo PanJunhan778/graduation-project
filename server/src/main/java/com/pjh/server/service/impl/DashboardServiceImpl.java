@@ -2,14 +2,18 @@ package com.pjh.server.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.pjh.server.common.Constants;
 import com.pjh.server.entity.Employee;
 import com.pjh.server.entity.FinanceRecord;
 import com.pjh.server.entity.TaxRecord;
+import com.pjh.server.entity.User;
 import com.pjh.server.exception.BusinessException;
 import com.pjh.server.mapper.EmployeeMapper;
 import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.mapper.TaxRecordMapper;
+import com.pjh.server.mapper.UserMapper;
 import com.pjh.server.service.DashboardService;
+import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceDashboardVO;
 import com.pjh.server.vo.HomeDashboardVO;
 import com.pjh.server.vo.HrDashboardVO;
@@ -46,6 +50,8 @@ public class DashboardServiceImpl implements DashboardService {
     private final FinanceRecordMapper financeRecordMapper;
     private final EmployeeMapper employeeMapper;
     private final TaxRecordMapper taxRecordMapper;
+    private final UserMapper userMapper;
+    private final CurrentSessionService currentSessionService;
     private final Clock clock;
 
     @Override
@@ -77,6 +83,7 @@ public class DashboardServiceImpl implements DashboardService {
         result.setHasUnpaidWarning(unpaidTax.compareTo(BigDecimal.ZERO) > 0);
         result.setMonthlyTrend(buildMonthlyTrend(currentMonth));
         result.setTaxCalendar(buildTaxCalendar());
+        result.setSetupStatus(buildSetupStatus());
         return result;
     }
 
@@ -231,6 +238,22 @@ public class DashboardServiceImpl implements DashboardService {
             return BigDecimal.ZERO;
         }
         return getBigDecimal(rows.getFirst(), "total");
+    }
+
+    private HomeDashboardVO.SetupStatus buildSetupStatus() {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+
+        Long staffCount = userMapper.selectCount(
+                new LambdaQueryWrapper<User>()
+                        .eq(User::getCompanyId, companyId)
+                        .eq(User::getRole, Constants.ROLE_STAFF)
+        );
+        Long financeRecordCount = financeRecordMapper.selectCount(new LambdaQueryWrapper<>());
+
+        HomeDashboardVO.SetupStatus setupStatus = new HomeDashboardVO.SetupStatus();
+        setupStatus.setHasStaffAccount(staffCount != null && staffCount > 0);
+        setupStatus.setHasFinanceRecord(financeRecordCount != null && financeRecordCount > 0);
+        return setupStatus;
     }
 
     private List<FinanceRecord> queryFinanceRecords(DateRange dateRange) {

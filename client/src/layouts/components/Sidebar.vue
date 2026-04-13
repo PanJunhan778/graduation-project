@@ -76,14 +76,19 @@ function navigate(path: string) {
 
     <nav class="sidebar-nav">
       <div
-        v-for="menu in visibleMenus"
-        :key="menu.path"
-        class="nav-item"
-        :class="{ active: activePath === menu.path }"
-        @click="navigate(menu.path)"
+        class="nav-list"
+        :id="userStore.role === 'staff' ? 'staff-guide-sidebar-menu' : undefined"
       >
-        <el-icon :size="20"><component :is="menu.icon" /></el-icon>
-        <span v-if="!collapsed" class="nav-label">{{ menu.title }}</span>
+        <div
+          v-for="menu in visibleMenus"
+          :key="menu.path"
+          class="nav-item"
+          :class="{ active: activePath === menu.path }"
+          @click="navigate(menu.path)"
+        >
+          <el-icon :size="20"><component :is="menu.icon" /></el-icon>
+          <span v-if="!collapsed" class="nav-label">{{ menu.title }}</span>
+        </div>
       </div>
     </nav>
 
@@ -142,6 +147,11 @@ function navigate(path: string) {
   flex: 1;
   padding: 8px 0;
   overflow-y: auto;
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
 }
 
 .nav-item {

@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { Plus, Search } from '@element-plus/icons-vue'
+import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
+import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import { getCompanyList, createCompany, createOwner, updateCompanyStatus } from '@/api/admin'
 import type { CompanyVO, CompanyCreateForm, OwnerCreateForm } from '@/types'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const loading = ref(false)
+const hasLoaded = ref(false)
 const tableData = ref<CompanyVO[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
+const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
 
 async function fetchList() {
   loading.value = true
@@ -23,6 +27,7 @@ async function fetchList() {
     tableData.value = res.data.records
     total.value = res.data.total
   } finally {
+    hasLoaded.value = true
     loading.value = false
   }
 }
@@ -157,7 +162,14 @@ onMounted(fetchList)
 </script>
 
 <template>
-  <div class="company-manage">
+  <PageTableSkeleton
+    v-if="showInitialSkeleton"
+    title="租户管理"
+    :action-count="1"
+    :filter-count="0"
+    :row-count="7"
+  />
+  <div v-else class="company-manage">
     <div class="page-header">
       <h2 class="page-title">租户管理</h2>
     </div>
@@ -180,7 +192,6 @@ onMounted(fetchList)
     </div>
 
     <el-table
-      v-loading="loading"
       :data="tableData"
       style="width: 100%"
       :header-cell-style="{

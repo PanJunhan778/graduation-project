@@ -48,6 +48,34 @@ export interface UserInfo {
   taxpayerType: string | null
 }
 
+export interface ProfileVO {
+  id: number
+  username: string
+  realName: string
+  role: 'admin' | 'owner' | 'staff'
+  companyName: string | null
+  companyCode: string | null
+  industry: string | null
+  taxpayerType: string | null
+  companyDescription: string | null
+}
+
+export interface UpdateProfileForm {
+  realName: string
+}
+
+export interface ChangePasswordForm {
+  oldPassword: string
+  newPassword: string
+}
+
+export interface CompanySettingsForm {
+  name: string
+  industry: string
+  taxpayerType: string
+  description: string
+}
+
 /** 角色引导选项 */
 export type RoleGuide = 'admin' | 'owner' | 'staff'
 
@@ -235,6 +263,10 @@ export interface HomeDashboardVO {
   hasUnpaidWarning: boolean
   monthlyTrend: MonthlyTrendPoint[]
   taxCalendar: TaxCalendarItem[]
+  setupStatus: {
+    hasStaffAccount: boolean
+    hasFinanceRecord: boolean
+  }
 }
 
 /** 数据看板时间范围 */

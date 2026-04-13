@@ -5,9 +5,11 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.pjh.server.entity.Employee;
 import com.pjh.server.entity.FinanceRecord;
 import com.pjh.server.entity.TaxRecord;
+import com.pjh.server.mapper.UserMapper;
 import com.pjh.server.mapper.EmployeeMapper;
 import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.mapper.TaxRecordMapper;
+import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceDashboardVO;
 import com.pjh.server.vo.HomeDashboardVO;
 import com.pjh.server.vo.HrDashboardVO;
@@ -48,12 +50,25 @@ class DashboardServiceImplTest {
     @Mock
     private TaxRecordMapper taxRecordMapper;
 
+    @Mock
+    private UserMapper userMapper;
+
+    @Mock
+    private CurrentSessionService currentSessionService;
+
     private DashboardServiceImpl dashboardService;
 
     @BeforeEach
     void setUp() {
         Clock fixedClock = Clock.fixed(Instant.parse("2026-04-11T08:00:00Z"), ZoneId.of("Asia/Shanghai"));
-        dashboardService = new DashboardServiceImpl(financeRecordMapper, employeeMapper, taxRecordMapper, fixedClock);
+        dashboardService = new DashboardServiceImpl(
+                financeRecordMapper,
+                employeeMapper,
+                taxRecordMapper,
+                userMapper,
+                currentSessionService,
+                fixedClock
+        );
     }
 
     @Test
@@ -66,9 +81,12 @@ class DashboardServiceImplTest {
                         ),
                         List.of()
                 );
+        when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", BigDecimal.ZERO)));
         when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
+        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(9L);
 
         HomeDashboardVO result = dashboardService.getHomeDashboard();
 
@@ -76,6 +94,8 @@ class DashboardServiceImplTest {
         assertEquals(0, result.getTotalExpense().compareTo(new BigDecimal("4800.00")));
         assertEquals(0, result.getNetProfit().compareTo(new BigDecimal("7200.00")));
         assertFalse(result.isHasUnpaidWarning());
+        assertTrue(result.getSetupStatus().isHasStaffAccount());
+        assertFalse(result.getSetupStatus().isHasFinanceRecord());
 
         ArgumentCaptor<QueryWrapper> captor = ArgumentCaptor.forClass(QueryWrapper.class);
         verify(financeRecordMapper, times(2)).selectMaps(captor.capture());
@@ -95,14 +115,19 @@ class DashboardServiceImplTest {
     void getHomeDashboardShouldOnlyWarnWhenPositiveUnpaidTaxExists() {
         when(financeRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(), List.of());
+        when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(2L);
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", new BigDecimal("3200.00"))));
         when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
+        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(9L);
 
         HomeDashboardVO result = dashboardService.getHomeDashboard();
 
         assertEquals(0, result.getUnpaidTax().compareTo(new BigDecimal("3200.00")));
         assertTrue(result.isHasUnpaidWarning());
+        assertFalse(result.getSetupStatus().isHasStaffAccount());
+        assertTrue(result.getSetupStatus().isHasFinanceRecord());
 
         ArgumentCaptor<QueryWrapper> captor = ArgumentCaptor.forClass(QueryWrapper.class);
         verify(taxRecordMapper).selectMaps(captor.capture());
@@ -123,9 +148,12 @@ class DashboardServiceImplTest {
                                 row("month", "2026-02", "income", new BigDecimal("500.00"), "expense", new BigDecimal("800.00"))
                         )
                 );
+        when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", BigDecimal.ZERO)));
         when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
+        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(9L);
 
         HomeDashboardVO result = dashboardService.getHomeDashboard();
 
@@ -143,6 +171,7 @@ class DashboardServiceImplTest {
     void getHomeDashboardShouldSortTaxCalendarByResolvedPeriodAndId() {
         when(financeRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(), List.of());
+        when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", BigDecimal.ZERO)));
         when(taxRecordMapper.selectList(any(QueryWrapper.class)))
@@ -152,6 +181,8 @@ class DashboardServiceImplTest {
                         taxRecord(3L, "2026-03", "附加税", 1, "1200.00"),
                         taxRecord(4L, "2026-Q2", "企业所得税", 0, "4500.00")
                 ));
+        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(9L);
 
         HomeDashboardVO result = dashboardService.getHomeDashboard();
 

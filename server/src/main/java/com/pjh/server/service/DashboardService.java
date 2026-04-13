@@ -6,7 +6,6 @@ import com.pjh.server.vo.HrDashboardVO;
 import com.pjh.server.vo.TaxDashboardVO;
 
 public interface DashboardService {
-
     HomeDashboardVO getHomeDashboard();
 
     FinanceDashboardVO getFinanceDashboard(String range);

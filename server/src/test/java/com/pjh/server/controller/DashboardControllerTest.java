@@ -60,6 +60,11 @@ class DashboardControllerTest {
         item.setAmount(new BigDecimal("3200.00"));
         dashboard.setTaxCalendar(List.of(item));
 
+        HomeDashboardVO.SetupStatus setupStatus = new HomeDashboardVO.SetupStatus();
+        setupStatus.setHasStaffAccount(true);
+        setupStatus.setHasFinanceRecord(false);
+        dashboard.setSetupStatus(setupStatus);
+
         when(dashboardService.getHomeDashboard()).thenReturn(dashboard);
 
         mockMvc.perform(get("/api/dashboard/home"))
@@ -71,7 +76,9 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.unpaidTax").value(3200.00))
                 .andExpect(jsonPath("$.data.hasUnpaidWarning").value(true))
                 .andExpect(jsonPath("$.data.monthlyTrend[0].month").value("2026-04"))
-                .andExpect(jsonPath("$.data.taxCalendar[0].taxType").value("增值税"));
+                .andExpect(jsonPath("$.data.taxCalendar[0].taxType").value("增值税"))
+                .andExpect(jsonPath("$.data.setupStatus.hasStaffAccount").value(true))
+                .andExpect(jsonPath("$.data.setupStatus.hasFinanceRecord").value(false));
 
         verify(dashboardService).getHomeDashboard();
     }
