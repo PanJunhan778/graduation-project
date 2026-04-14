@@ -55,7 +55,7 @@ class ProfileServiceImplTest {
         ProfileVO result = profileService.getCurrentProfile();
 
         assertEquals("owner01", result.getUsername());
-        assertEquals("张总", result.getRealName());
+        assertEquals("张涵", result.getRealName());
         assertEquals("深圳XX贸易有限公司", result.getCompanyName());
         assertEquals("主营跨境贸易与供应链服务", result.getCompanyDescription());
     }
@@ -105,7 +105,7 @@ class ProfileServiceImplTest {
         dto.setNewPassword("simple");
 
         BusinessException exception = assertThrows(BusinessException.class, () -> profileService.changePassword(dto));
-        assertEquals("密码至少 8 位，须包含大写字母、小写字母和数字", exception.getMessage());
+        assertEquals("密码至少 8 位，且须包含大写字母、小写字母和数字", exception.getMessage());
         verify(userMapper, never()).updateById(any());
     }
 
@@ -132,8 +132,8 @@ class ProfileServiceImplTest {
         when(userMapper.selectById(7L)).thenReturn(user);
 
         UpdateCompanySettingsDTO dto = new UpdateCompanySettingsDTO();
-        dto.setName("  新公司名称  ");
-        dto.setIndustry("  智能制造  ");
+        dto.setName("  新公司名称 ");
+        dto.setIndustry("  智能制造 ");
         dto.setTaxpayerType("  一般纳税人  ");
         dto.setDescription("   ");
 
@@ -147,12 +147,33 @@ class ProfileServiceImplTest {
         verify(companyMapper).updateById(company);
     }
 
+    @Test
+    void updateCurrentCompanyShouldAllowDescriptionOnlyUpdates() {
+        User user = buildUser();
+        Company company = buildCompany();
+        when(currentSessionService.requireCurrentRole()).thenReturn("owner");
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(9L);
+        when(currentSessionService.requireCurrentUserId()).thenReturn(7L);
+        when(companyMapper.selectById(9L)).thenReturn(company);
+        when(userMapper.selectById(7L)).thenReturn(user);
+
+        UpdateCompanySettingsDTO dto = new UpdateCompanySettingsDTO();
+        dto.setDescription("  新的企业画像摘要  ");
+
+        ProfileVO result = profileService.updateCurrentCompany(dto);
+
+        assertEquals("深圳XX贸易有限公司", company.getName());
+        assertEquals("新的企业画像摘要", company.getDescription());
+        assertEquals("新的企业画像摘要", result.getCompanyDescription());
+        verify(companyMapper).updateById(company);
+    }
+
     private User buildUser() {
         User user = new User();
         user.setId(7L);
         user.setCompanyId(9L);
         user.setUsername("owner01");
-        user.setRealName("张总");
+        user.setRealName("张涵");
         user.setRole("owner");
         user.setPassword(BCrypt.hashpw("OldPass123"));
         return user;

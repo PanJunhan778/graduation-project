@@ -19,6 +19,6 @@ export function changePassword(data: ChangePasswordForm): Promise<Result<null>> 
   return request.put('/profile/password', data)
 }
 
-export function updateCompanySettings(data: CompanySettingsForm): Promise<Result<ProfileVO>> {
+export function updateCompanySettings(data: Partial<CompanySettingsForm>): Promise<Result<ProfileVO>> {
   return request.put('/profile/company', data)
 }

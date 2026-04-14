@@ -4,6 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.pjh.server.common.Result;
 import com.pjh.server.service.DashboardService;
 import com.pjh.server.vo.FinanceDashboardVO;
+import com.pjh.server.vo.HomeAiSummaryVO;
 import com.pjh.server.vo.HomeDashboardVO;
 import com.pjh.server.vo.HrDashboardVO;
 import com.pjh.server.vo.TaxDashboardVO;
@@ -24,6 +25,11 @@ public class DashboardController {
     @GetMapping("/home")
     public Result<HomeDashboardVO> getHomeDashboard() {
         return Result.success(dashboardService.getHomeDashboard());
+    }
+
+    @GetMapping("/home-ai-summary")
+    public Result<HomeAiSummaryVO> getHomeAiSummary() {
+        return Result.success(dashboardService.getHomeAiSummary());
     }
 
     @GetMapping("/finance")

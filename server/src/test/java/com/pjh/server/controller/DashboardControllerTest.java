@@ -2,6 +2,7 @@ package com.pjh.server.controller;
 
 import com.pjh.server.service.DashboardService;
 import com.pjh.server.vo.FinanceDashboardVO;
+import com.pjh.server.vo.HomeAiSummaryVO;
 import com.pjh.server.vo.HomeDashboardVO;
 import com.pjh.server.vo.HrDashboardVO;
 import com.pjh.server.vo.TaxDashboardVO;
@@ -47,15 +48,20 @@ class DashboardControllerTest {
         dashboard.setHasUnpaidWarning(true);
 
         HomeDashboardVO.MonthlyTrendPoint point = new HomeDashboardVO.MonthlyTrendPoint();
-        point.setMonth("2026-04");
+        point.setMonth("2026-03");
         point.setIncome(new BigDecimal("12000.00"));
         point.setExpense(new BigDecimal("7000.00"));
         point.setProfit(new BigDecimal("5000.00"));
         dashboard.setMonthlyTrend(List.of(point));
 
+        HomeDashboardVO.DepartmentHeadcountItem department = new HomeDashboardVO.DepartmentHeadcountItem();
+        department.setDepartment("\u7814\u53d1\u90e8");
+        department.setEmployeeCount(6L);
+        dashboard.setDepartmentHeadcount(List.of(department));
+
         HomeDashboardVO.TaxCalendarItem item = new HomeDashboardVO.TaxCalendarItem();
         item.setTaxPeriod("2026-Q1");
-        item.setTaxType("增值税");
+        item.setTaxType("\u589e\u503c\u7a0e");
         item.setStatus(0);
         item.setAmount(new BigDecimal("3200.00"));
         dashboard.setTaxCalendar(List.of(item));
@@ -75,12 +81,35 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.netProfit").value(5000.00))
                 .andExpect(jsonPath("$.data.unpaidTax").value(3200.00))
                 .andExpect(jsonPath("$.data.hasUnpaidWarning").value(true))
-                .andExpect(jsonPath("$.data.monthlyTrend[0].month").value("2026-04"))
-                .andExpect(jsonPath("$.data.taxCalendar[0].taxType").value("增值税"))
+                .andExpect(jsonPath("$.data.monthlyTrend[0].month").value("2026-03"))
+                .andExpect(jsonPath("$.data.departmentHeadcount[0].department").value("\u7814\u53d1\u90e8"))
+                .andExpect(jsonPath("$.data.departmentHeadcount[0].employeeCount").value(6))
+                .andExpect(jsonPath("$.data.taxCalendar[0].taxType").value("\u589e\u503c\u7a0e"))
                 .andExpect(jsonPath("$.data.setupStatus.hasStaffAccount").value(true))
                 .andExpect(jsonPath("$.data.setupStatus.hasFinanceRecord").value(false));
 
         verify(dashboardService).getHomeDashboard();
+    }
+
+    @Test
+    void getHomeAiSummaryShouldReturnWrappedSummaryData() throws Exception {
+        HomeAiSummaryVO summary = new HomeAiSummaryVO();
+        summary.setSummaryLines(List.of(
+                "\u6700\u8fd1\u5b8c\u6574\u6708\u51c0\u5229\u6da6\u56de\u5347\u3002",
+                "\u5f53\u524d\u4ecd\u6709\u5f85\u7f34\u7a0e\u989d\u9700\u8981\u5173\u6ce8\u3002"
+        ));
+        summary.setGeneratedAt("2026-04-13T09:30:00");
+
+        when(dashboardService.getHomeAiSummary()).thenReturn(summary);
+
+        mockMvc.perform(get("/api/dashboard/home-ai-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.summaryLines[0]").value("\u6700\u8fd1\u5b8c\u6574\u6708\u51c0\u5229\u6da6\u56de\u5347\u3002"))
+                .andExpect(jsonPath("$.data.summaryLines[1]").value("\u5f53\u524d\u4ecd\u6709\u5f85\u7f34\u7a0e\u989d\u9700\u8981\u5173\u6ce8\u3002"))
+                .andExpect(jsonPath("$.data.generatedAt").value("2026-04-13T09:30:00"));
+
+        verify(dashboardService).getHomeAiSummary();
     }
 
     @Test
@@ -90,13 +119,13 @@ class DashboardControllerTest {
         dashboard.setTotalExpense(new BigDecimal("31000.00"));
 
         FinanceDashboardVO.ExpenseBreakdownItem expenseItem = new FinanceDashboardVO.ExpenseBreakdownItem();
-        expenseItem.setName("营销");
+        expenseItem.setName("\u8425\u9500");
         expenseItem.setAmount(new BigDecimal("12000.00"));
         expenseItem.setRatio(new BigDecimal("0.3871"));
         dashboard.setExpenseBreakdown(List.of(expenseItem));
 
         FinanceDashboardVO.TopIncomeSourceItem incomeItem = new FinanceDashboardVO.TopIncomeSourceItem();
-        incomeItem.setName("企业年框项目");
+        incomeItem.setName("\u4f01\u4e1a\u5e74\u6846\u9879\u76ee");
         incomeItem.setAmount(new BigDecimal("28000.00"));
         dashboard.setTopIncomeSources(List.of(incomeItem));
 
@@ -107,8 +136,8 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.totalIncome").value(68000.00))
                 .andExpect(jsonPath("$.data.totalExpense").value(31000.00))
-                .andExpect(jsonPath("$.data.expenseBreakdown[0].name").value("营销"))
-                .andExpect(jsonPath("$.data.topIncomeSources[0].name").value("企业年框项目"));
+                .andExpect(jsonPath("$.data.expenseBreakdown[0].name").value("\u8425\u9500"))
+                .andExpect(jsonPath("$.data.topIncomeSources[0].name").value("\u4f01\u4e1a\u5e74\u6846\u9879\u76ee"));
 
         verify(dashboardService).getFinanceDashboard("last12months");
     }
@@ -120,7 +149,7 @@ class DashboardControllerTest {
         dashboard.setActiveSalaryTotal(new BigDecimal("196000.00"));
 
         HrDashboardVO.DepartmentSalaryShareItem shareItem = new HrDashboardVO.DepartmentSalaryShareItem();
-        shareItem.setDepartment("产品部");
+        shareItem.setDepartment("\u4ea7\u54c1\u90e8");
         shareItem.setEmployeeCount(6L);
         shareItem.setSalaryAmount(new BigDecimal("76000.00"));
         shareItem.setRatio(new BigDecimal("0.3878"));
@@ -138,7 +167,7 @@ class DashboardControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.activeEmployeeCount").value(18))
-                .andExpect(jsonPath("$.data.departmentSalaryShare[0].department").value("产品部"))
+                .andExpect(jsonPath("$.data.departmentSalaryShare[0].department").value("\u4ea7\u54c1\u90e8"))
                 .andExpect(jsonPath("$.data.monthlyTrend[0].month").value("2026-04"));
 
         verify(dashboardService).getHrDashboard("last6months");
@@ -153,7 +182,7 @@ class DashboardControllerTest {
         dashboard.setUnpaidTaxAmount(new BigDecimal("9600.00"));
 
         TaxDashboardVO.TaxTypeStructureItem structureItem = new TaxDashboardVO.TaxTypeStructureItem();
-        structureItem.setTaxType("增值税");
+        structureItem.setTaxType("\u589e\u503c\u7a0e");
         structureItem.setAmount(new BigDecimal("26000.00"));
         structureItem.setRatio(new BigDecimal("0.6190"));
         dashboard.setTaxTypeStructure(List.of(structureItem));
@@ -171,7 +200,7 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.taxBurdenRate").value(0.0835))
                 .andExpect(jsonPath("$.data.positiveTaxAmount").value(42000.00))
-                .andExpect(jsonPath("$.data.taxTypeStructure[0].taxType").value("增值税"))
+                .andExpect(jsonPath("$.data.taxTypeStructure[0].taxType").value("\u589e\u503c\u7a0e"))
                 .andExpect(jsonPath("$.data.statusSummary[0].status").value(0));
 
         verify(dashboardService).getTaxDashboard("thisYear");

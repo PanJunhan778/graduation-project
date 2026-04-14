@@ -2,24 +2,30 @@ package com.pjh.server.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.pjh.server.config.AiProperties;
+import com.pjh.server.entity.Company;
 import com.pjh.server.entity.Employee;
 import com.pjh.server.entity.FinanceRecord;
 import com.pjh.server.entity.TaxRecord;
-import com.pjh.server.mapper.UserMapper;
+import com.pjh.server.mapper.CompanyMapper;
 import com.pjh.server.mapper.EmployeeMapper;
 import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.mapper.TaxRecordMapper;
+import com.pjh.server.mapper.UserMapper;
 import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceDashboardVO;
+import com.pjh.server.vo.HomeAiSummaryVO;
 import com.pjh.server.vo.HomeDashboardVO;
 import com.pjh.server.vo.HrDashboardVO;
 import com.pjh.server.vo.TaxDashboardVO;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -54,20 +60,30 @@ class DashboardServiceImplTest {
     private UserMapper userMapper;
 
     @Mock
+    private CompanyMapper companyMapper;
+
+    @Mock
     private CurrentSessionService currentSessionService;
+
+    @Mock
+    private ObjectProvider<OpenAiChatModel> chatModelProvider;
 
     private DashboardServiceImpl dashboardService;
 
     @BeforeEach
     void setUp() {
         Clock fixedClock = Clock.fixed(Instant.parse("2026-04-11T08:00:00Z"), ZoneId.of("Asia/Shanghai"));
+        AiProperties aiProperties = new AiProperties();
         dashboardService = new DashboardServiceImpl(
                 financeRecordMapper,
                 employeeMapper,
                 taxRecordMapper,
                 userMapper,
+                companyMapper,
                 currentSessionService,
-                fixedClock
+                fixedClock,
+                aiProperties,
+                chatModelProvider
         );
     }
 
@@ -82,6 +98,11 @@ class DashboardServiceImplTest {
                         List.of()
                 );
         when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(employeeMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
+                employee(1L, "Alice", "研发部", "10000.00", "2025-11-05"),
+                employee(2L, "Bob", "研发部", "8000.00", "2026-02-10"),
+                employee(3L, "Cara", "市场部", "7000.00", "2026-01-12")
+        ));
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", BigDecimal.ZERO)));
         when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
@@ -96,6 +117,10 @@ class DashboardServiceImplTest {
         assertFalse(result.isHasUnpaidWarning());
         assertTrue(result.getSetupStatus().isHasStaffAccount());
         assertFalse(result.getSetupStatus().isHasFinanceRecord());
+        assertEquals(List.of("研发部", "市场部"),
+                result.getDepartmentHeadcount().stream().map(HomeDashboardVO.DepartmentHeadcountItem::getDepartment).toList());
+        assertEquals(List.of(2L, 1L),
+                result.getDepartmentHeadcount().stream().map(HomeDashboardVO.DepartmentHeadcountItem::getEmployeeCount).toList());
 
         ArgumentCaptor<QueryWrapper> captor = ArgumentCaptor.forClass(QueryWrapper.class);
         verify(financeRecordMapper, times(2)).selectMaps(captor.capture());
@@ -116,6 +141,7 @@ class DashboardServiceImplTest {
         when(financeRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(), List.of());
         when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(2L);
+        when(employeeMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", new BigDecimal("3200.00"))));
         when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
@@ -144,11 +170,15 @@ class DashboardServiceImplTest {
                 .thenReturn(
                         List.of(),
                         List.of(
-                                row("month", "2025-11", "income", new BigDecimal("1000.00"), "expense", new BigDecimal("200.00")),
+                                row("month", "2025-10", "income", new BigDecimal("1000.00"), "expense", new BigDecimal("200.00")),
                                 row("month", "2026-02", "income", new BigDecimal("500.00"), "expense", new BigDecimal("800.00"))
                         )
                 );
         when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(employeeMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
+                employee(1L, "Alice", "研发部", "10000.00", "2025-11-05"),
+                employee(2L, "Bob", "", "8000.00", "2026-02-10")
+        ));
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", BigDecimal.ZERO)));
         when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
@@ -158,13 +188,20 @@ class DashboardServiceImplTest {
         HomeDashboardVO result = dashboardService.getHomeDashboard();
 
         assertEquals(6, result.getMonthlyTrend().size());
-        assertEquals("2025-11", result.getMonthlyTrend().getFirst().getMonth());
+        assertEquals("2025-10", result.getMonthlyTrend().getFirst().getMonth());
         assertEquals(0, result.getMonthlyTrend().getFirst().getProfit().compareTo(new BigDecimal("800.00")));
-        assertEquals("2025-12", result.getMonthlyTrend().get(1).getMonth());
+        assertEquals("2025-11", result.getMonthlyTrend().get(1).getMonth());
         assertEquals(0, result.getMonthlyTrend().get(1).getIncome().compareTo(BigDecimal.ZERO));
-        assertEquals("2026-02", result.getMonthlyTrend().get(3).getMonth());
-        assertEquals(0, result.getMonthlyTrend().get(3).getProfit().compareTo(new BigDecimal("-300.00")));
-        assertEquals("2026-04", result.getMonthlyTrend().getLast().getMonth());
+        assertEquals(0, result.getMonthlyTrend().get(1).getExpense().compareTo(BigDecimal.ZERO));
+        assertEquals(0, result.getMonthlyTrend().get(1).getProfit().compareTo(BigDecimal.ZERO));
+        assertEquals("2026-02", result.getMonthlyTrend().get(4).getMonth());
+        assertEquals(0, result.getMonthlyTrend().get(4).getIncome().compareTo(new BigDecimal("500.00")));
+        assertEquals(0, result.getMonthlyTrend().get(4).getExpense().compareTo(new BigDecimal("800.00")));
+        assertEquals(0, result.getMonthlyTrend().get(4).getProfit().compareTo(new BigDecimal("-300.00")));
+        assertEquals("2026-03", result.getMonthlyTrend().getLast().getMonth());
+        assertEquals(0, result.getMonthlyTrend().getLast().getProfit().compareTo(BigDecimal.ZERO));
+        assertEquals(List.of("研发部", "未分配部门"),
+                result.getDepartmentHeadcount().stream().map(HomeDashboardVO.DepartmentHeadcountItem::getDepartment).toList());
     }
 
     @Test
@@ -172,6 +209,7 @@ class DashboardServiceImplTest {
         when(financeRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(), List.of());
         when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(0L);
+        when(employeeMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
                 .thenReturn(List.of(row("total", BigDecimal.ZERO)));
         when(taxRecordMapper.selectList(any(QueryWrapper.class)))
@@ -188,6 +226,40 @@ class DashboardServiceImplTest {
 
         assertEquals(List.of("2026-Q2", "2026-03", "2026-Q1", "2025-Annual"),
                 result.getTaxCalendar().stream().map(HomeDashboardVO.TaxCalendarItem::getTaxPeriod).toList());
+    }
+
+    @Test
+    void getHomeAiSummaryShouldFallbackToHeuristicLinesAndReuseCache() {
+        when(financeRecordMapper.selectMaps(any(QueryWrapper.class)))
+                .thenReturn(
+                        List.of(
+                                row("type", "income", "total", new BigDecimal("12000.00")),
+                                row("type", "expense", "total", new BigDecimal("7000.00"))
+                        ),
+                        List.of(
+                                row("month", "2025-10", "income", new BigDecimal("1000.00"), "expense", new BigDecimal("200.00")),
+                                row("month", "2026-02", "income", new BigDecimal("500.00"), "expense", new BigDecimal("800.00"))
+                        )
+                );
+        when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(employeeMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
+                employee(1L, "Alice", "研发部", "10000.00", "2025-11-05")
+        ));
+        when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
+                .thenReturn(List.of(row("total", new BigDecimal("3200.00"))));
+        when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
+        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(9L);
+        when(companyMapper.selectById(9L)).thenReturn(company());
+
+        HomeAiSummaryVO first = dashboardService.getHomeAiSummary();
+        HomeAiSummaryVO second = dashboardService.getHomeAiSummary();
+
+        assertEquals(first, second);
+        assertEquals(3, first.getSummaryLines().size());
+        assertTrue(first.getSummaryLines().stream().allMatch(line -> line != null && !line.isBlank()));
+        assertEquals("2026-04-11T16:00", first.getGeneratedAt());
+        verify(companyMapper).selectById(9L);
     }
 
     @Test
@@ -340,5 +412,15 @@ class DashboardServiceImplTest {
         record.setPaymentStatus(status);
         record.setTaxAmount(new BigDecimal(amount));
         return record;
+    }
+
+    private Company company() {
+        Company company = new Company();
+        company.setId(9L);
+        company.setName("星桥供应链");
+        company.setIndustry("跨境贸易");
+        company.setTaxpayerType("一般纳税人");
+        company.setDescription("主营供应链服务");
+        return company;
     }
 }

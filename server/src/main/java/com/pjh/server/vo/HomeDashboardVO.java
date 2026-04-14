@@ -14,6 +14,7 @@ public class HomeDashboardVO {
     private BigDecimal unpaidTax;
     private boolean hasUnpaidWarning;
     private List<MonthlyTrendPoint> monthlyTrend;
+    private List<DepartmentHeadcountItem> departmentHeadcount;
     private List<TaxCalendarItem> taxCalendar;
     private SetupStatus setupStatus;
 
@@ -31,6 +32,12 @@ public class HomeDashboardVO {
         private String taxType;
         private Integer status;
         private BigDecimal amount;
+    }
+
+    @Data
+    public static class DepartmentHeadcountItem {
+        private String department;
+        private Long employeeCount;
     }
 
     @Data

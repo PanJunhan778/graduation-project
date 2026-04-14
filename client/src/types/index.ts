@@ -246,6 +246,11 @@ export interface MonthlyTrendPoint {
   profit: number
 }
 
+export interface DepartmentHeadcountItem {
+  department: string
+  employeeCount: number
+}
+
 /** 首页税务时间轴项 */
 export interface TaxCalendarItem {
   taxPeriod: string
@@ -262,11 +267,17 @@ export interface HomeDashboardVO {
   unpaidTax: number
   hasUnpaidWarning: boolean
   monthlyTrend: MonthlyTrendPoint[]
+  departmentHeadcount: DepartmentHeadcountItem[]
   taxCalendar: TaxCalendarItem[]
   setupStatus: {
     hasStaffAccount: boolean
     hasFinanceRecord: boolean
   }
+}
+
+export interface HomeAiSummaryVO {
+  summaryLines: string[]
+  generatedAt: string
 }
 
 /** 数据看板时间范围 */

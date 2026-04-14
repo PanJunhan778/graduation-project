@@ -2,12 +2,17 @@ package com.pjh.server.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.pjh.server.config.AiProperties;
 import com.pjh.server.common.Constants;
+import com.pjh.server.entity.Company;
 import com.pjh.server.entity.Employee;
 import com.pjh.server.entity.FinanceRecord;
 import com.pjh.server.entity.TaxRecord;
 import com.pjh.server.entity.User;
 import com.pjh.server.exception.BusinessException;
+import com.pjh.server.mapper.CompanyMapper;
 import com.pjh.server.mapper.EmployeeMapper;
 import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.mapper.TaxRecordMapper;
@@ -15,15 +20,27 @@ import com.pjh.server.mapper.UserMapper;
 import com.pjh.server.service.DashboardService;
 import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceDashboardVO;
+import com.pjh.server.vo.HomeAiSummaryVO;
 import com.pjh.server.vo.HomeDashboardVO;
 import com.pjh.server.vo.HrDashboardVO;
 import com.pjh.server.vo.TaxDashboardVO;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -31,15 +48,19 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DashboardServiceImpl implements DashboardService {
 
     private static final BigDecimal ZERO = BigDecimal.ZERO;
+    private static final int HOME_TREND_MONTH_COUNT = 6;
+    private static final Duration HOME_AI_SUMMARY_CACHE_TTL = Duration.ofMinutes(10);
     private static final Set<String> FINANCE_AND_HR_RANGES = Set.of("last3months", "last6months", "last12months", "all");
     private static final Set<String> TAX_RANGES = Set.of("thisYear", "last12months", "all");
     private static final DateTimeFormatter MONTH_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
@@ -51,8 +72,15 @@ public class DashboardServiceImpl implements DashboardService {
     private final EmployeeMapper employeeMapper;
     private final TaxRecordMapper taxRecordMapper;
     private final UserMapper userMapper;
+    private final CompanyMapper companyMapper;
     private final CurrentSessionService currentSessionService;
     private final Clock clock;
+    private final AiProperties aiProperties;
+    private final ObjectProvider<OpenAiChatModel> chatModelProvider;
+    private final Cache<Long, HomeAiSummaryVO> homeAiSummaryCache = Caffeine.newBuilder()
+            .expireAfterWrite(HOME_AI_SUMMARY_CACHE_TTL)
+            .maximumSize(128)
+            .build();
 
     @Override
     public HomeDashboardVO getHomeDashboard() {
@@ -60,6 +88,7 @@ public class DashboardServiceImpl implements DashboardService {
         YearMonth currentMonth = YearMonth.from(today);
         LocalDate monthStart = currentMonth.atDay(1);
         LocalDate monthEnd = currentMonth.atEndOfMonth();
+        List<Employee> activeEmployees = queryActiveEmployees();
 
         BigDecimal totalIncome = BigDecimal.ZERO;
         BigDecimal totalExpense = BigDecimal.ZERO;
@@ -81,10 +110,29 @@ public class DashboardServiceImpl implements DashboardService {
         result.setNetProfit(totalIncome.subtract(totalExpense));
         result.setUnpaidTax(unpaidTax);
         result.setHasUnpaidWarning(unpaidTax.compareTo(BigDecimal.ZERO) > 0);
-        result.setMonthlyTrend(buildMonthlyTrend(currentMonth));
+        result.setMonthlyTrend(buildMonthlyTrend(currentMonth.minusMonths(1)));
+        result.setDepartmentHeadcount(buildHomeDepartmentHeadcount(activeEmployees));
         result.setTaxCalendar(buildTaxCalendar());
         result.setSetupStatus(buildSetupStatus());
         return result;
+    }
+
+    @Override
+    public HomeAiSummaryVO getHomeAiSummary() {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        HomeAiSummaryVO cached = homeAiSummaryCache.getIfPresent(companyId);
+        if (cached != null) {
+            return cached;
+        }
+
+        Company company = companyMapper.selectById(companyId);
+        HomeDashboardVO dashboard = getHomeDashboard();
+
+        HomeAiSummaryVO summary = new HomeAiSummaryVO();
+        summary.setSummaryLines(generateHomeAiSummaryLines(companyId, company, dashboard));
+        summary.setGeneratedAt(LocalDateTime.now(clock).toString());
+        homeAiSummaryCache.put(companyId, summary);
+        return summary;
     }
 
     @Override
@@ -269,7 +317,9 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     private List<Employee> queryActiveEmployees() {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
         LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<Employee>()
+                .eq(Employee::getCompanyId, companyId)
                 .eq(Employee::getStatus, 1)
                 .orderByAsc(Employee::getHireDate)
                 .orderByAsc(Employee::getId);
@@ -282,10 +332,10 @@ public class DashboardServiceImpl implements DashboardService {
         return taxRecordMapper.selectList(wrapper);
     }
 
-    private List<HomeDashboardVO.MonthlyTrendPoint> buildMonthlyTrend(YearMonth currentMonth) {
-        YearMonth startMonth = currentMonth.minusMonths(5);
+    private List<HomeDashboardVO.MonthlyTrendPoint> buildMonthlyTrend(YearMonth endMonth) {
+        YearMonth startMonth = endMonth.minusMonths(HOME_TREND_MONTH_COUNT - 1L);
         LocalDate startDate = startMonth.atDay(1);
-        LocalDate endDate = currentMonth.atEndOfMonth();
+        LocalDate endDate = endMonth.atEndOfMonth();
 
         QueryWrapper<FinanceRecord> wrapper = new QueryWrapper<>();
         wrapper.select(
@@ -304,7 +354,7 @@ public class DashboardServiceImpl implements DashboardService {
         }
 
         List<HomeDashboardVO.MonthlyTrendPoint> trend = new ArrayList<>();
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < HOME_TREND_MONTH_COUNT; i++) {
             YearMonth month = startMonth.plusMonths(i);
             String monthKey = month.format(MONTH_FORMATTER);
             Map<String, Object> row = rowMap.get(monthKey);
@@ -319,6 +369,26 @@ public class DashboardServiceImpl implements DashboardService {
             trend.add(point);
         }
         return trend;
+    }
+
+    private List<HomeDashboardVO.DepartmentHeadcountItem> buildHomeDepartmentHeadcount(List<Employee> activeEmployees) {
+        if (activeEmployees == null || activeEmployees.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, Long> departmentMap = new LinkedHashMap<>();
+        for (Employee employee : activeEmployees) {
+            departmentMap.merge(normalizeDepartment(employee.getDepartment()), 1L, Long::sum);
+        }
+
+        return departmentMap.entrySet().stream()
+                .sorted(
+                        Map.Entry.<String, Long>comparingByValue().reversed()
+                                .thenComparing(entry -> isUnassignedDepartment(entry.getKey()))
+                                .thenComparing(Map.Entry::getKey)
+                )
+                .map(entry -> toDepartmentHeadcountItem(entry.getKey(), entry.getValue()))
+                .toList();
     }
 
     private List<HomeDashboardVO.TaxCalendarItem> buildTaxCalendar() {
@@ -341,6 +411,255 @@ public class DashboardServiceImpl implements DashboardService {
                 .limit(8)
                 .map(this::toTaxCalendarItem)
                 .toList();
+    }
+
+    private List<String> generateHomeAiSummaryLines(Long companyId, Company company, HomeDashboardVO dashboard) {
+        List<String> fallbackLines = buildHeuristicHomeAiSummaryLines(dashboard);
+        if (!isAiSummaryEnabled()) {
+            return fallbackLines;
+        }
+
+        OpenAiChatModel chatModel = chatModelProvider.getIfAvailable();
+        if (chatModel == null) {
+            return fallbackLines;
+        }
+
+        try {
+            Response<AiMessage> response = chatModel.generate(List.of(
+                    SystemMessage.from(buildHomeAiSummarySystemPrompt()),
+                    UserMessage.from(buildHomeAiSummaryFacts(company, dashboard))
+            ));
+            String text = response == null || response.content() == null ? "" : response.content().text();
+            List<String> aiLines = parseHomeAiSummaryLines(text);
+            return aiLines.isEmpty() ? fallbackLines : aiLines;
+        } catch (Exception exception) {
+            log.warn("Failed to generate home AI summary for companyId={}", companyId, exception);
+            return fallbackLines;
+        }
+    }
+
+    private boolean isAiSummaryEnabled() {
+        return aiProperties.isEnabled()
+                && StringUtils.hasText(aiProperties.getApiKey())
+                && StringUtils.hasText(aiProperties.getBaseUrl())
+                && StringUtils.hasText(aiProperties.getModel());
+    }
+
+    private String buildHomeAiSummarySystemPrompt() {
+        return """
+                你是企业管理系统首页的 AI 经营速记助手。
+                请根据提供的事实，输出 2 到 3 句简体中文短句。
+                每句单独一行，每句不超过 28 个汉字。
+                不要使用序号、项目符号、Markdown 或额外说明。
+                只能引用已提供的数据，不得编造。
+                优先概括经营走势、风险提醒和下一步可追问方向。
+                """;
+    }
+
+    private String buildHomeAiSummaryFacts(Company company, HomeDashboardVO dashboard) {
+        String companyName = company == null || !StringUtils.hasText(company.getName()) ? "当前企业" : company.getName().trim();
+        String industry = company == null || !StringUtils.hasText(company.getIndustry()) ? "未填写" : company.getIndustry().trim();
+        String taxpayerType = company == null || !StringUtils.hasText(company.getTaxpayerType()) ? "未填写" : company.getTaxpayerType().trim();
+        String description = company == null || !StringUtils.hasText(company.getDescription()) ? "暂无企业画像" : company.getDescription().trim();
+
+        String taxFocus = dashboard.getTaxCalendar() == null || dashboard.getTaxCalendar().isEmpty()
+                ? "暂无税务节点"
+                : dashboard.getTaxCalendar().stream()
+                .limit(3)
+                .map(item -> "%s %s %s %s".formatted(
+                        item.getTaxPeriod(),
+                        normalizeTaxType(item.getTaxType()),
+                        getTaxStatusSummary(item.getStatus()),
+                        formatCompactMoney(item.getAmount())
+                ))
+                .reduce((left, right) -> left + "；" + right)
+                .orElse("暂无税务节点");
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("公司名称：").append(companyName).append('\n');
+        builder.append("行业：").append(industry).append('\n');
+        builder.append("纳税人类型：").append(taxpayerType).append('\n');
+        builder.append("企业画像：").append(description).append('\n');
+        builder.append("本月收入：").append(formatCompactMoney(dashboard.getTotalIncome())).append('\n');
+        builder.append("本月支出：").append(formatCompactMoney(dashboard.getTotalExpense())).append('\n');
+        builder.append("本月净利润：").append(formatCompactMoney(dashboard.getNetProfit())).append('\n');
+        builder.append("待缴税额：").append(formatCompactMoney(dashboard.getUnpaidTax())).append('\n');
+        builder.append("近").append(HOME_TREND_MONTH_COUNT).append("个月趋势：")
+                .append(buildTrendFacts(dashboard.getMonthlyTrend()))
+                .append('\n');
+        builder.append("税务关注：").append(taxFocus).append('\n');
+        builder.append("请输出适合首页展示的 2 到 3 行经营速记。");
+        return builder.toString();
+    }
+
+    private String buildTrendFacts(List<HomeDashboardVO.MonthlyTrendPoint> monthlyTrend) {
+        if (monthlyTrend == null || monthlyTrend.isEmpty()) {
+            return "暂无趋势数据";
+        }
+        return monthlyTrend.stream()
+                .map(point -> "%s 收入%s 支出%s 利润%s".formatted(
+                        point.getMonth(),
+                        formatCompactMoney(point.getIncome()),
+                        formatCompactMoney(point.getExpense()),
+                        formatCompactMoney(point.getProfit())
+                ))
+                .reduce((left, right) -> left + "；" + right)
+                .orElse("暂无趋势数据");
+    }
+
+    private List<String> parseHomeAiSummaryLines(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+
+        List<String> lines = new ArrayList<>();
+        for (String rawLine : text.split("\\R+")) {
+            String normalized = rawLine.replaceFirst("^[-•*\\d.\\s]+", "").trim();
+            if (!normalized.isEmpty()) {
+                lines.add(normalized);
+            }
+            if (lines.size() == 3) {
+                break;
+            }
+        }
+        return lines;
+    }
+
+    private List<String> buildHeuristicHomeAiSummaryLines(HomeDashboardVO dashboard) {
+        if (!hasHomeObservationData(dashboard)) {
+            return List.of(
+                    "近 %d 个月还没有形成可读经营画像。".formatted(HOME_TREND_MONTH_COUNT),
+                    "先补充财务流水和税务档案，首页会给出更具体观察。"
+            );
+        }
+
+        List<String> lines = new ArrayList<>();
+        List<HomeDashboardVO.MonthlyTrendPoint> monthlyTrend = dashboard.getMonthlyTrend() == null
+                ? List.of()
+                : dashboard.getMonthlyTrend();
+        HomeDashboardVO.MonthlyTrendPoint latest = monthlyTrend.isEmpty() ? null : monthlyTrend.getLast();
+        HomeDashboardVO.MonthlyTrendPoint previous = monthlyTrend.size() > 1 ? monthlyTrend.get(monthlyTrend.size() - 2) : null;
+
+        if (latest != null) {
+            BigDecimal latestProfit = safeAmount(latest.getProfit());
+            lines.add(latestProfit.compareTo(ZERO) >= 0
+                    ? buildPositiveProfitLine(latest, previous)
+                    : buildNegativeProfitLine(latest, previous));
+        }
+
+        long profitableMonths = monthlyTrend.stream()
+                .map(HomeDashboardVO.MonthlyTrendPoint::getProfit)
+                .map(this::safeAmount)
+                .filter(amount -> amount.compareTo(ZERO) > 0)
+                .count();
+        HomeDashboardVO.MonthlyTrendPoint peakIncomePoint = monthlyTrend.stream()
+                .filter(Objects::nonNull)
+                .max(Comparator.comparing(point -> safeAmount(point.getIncome())))
+                .orElse(null);
+        if (peakIncomePoint != null) {
+            lines.add("过去 %d 个月有 %d 个月盈利，收入高点在 %s。".formatted(
+                    HOME_TREND_MONTH_COUNT,
+                    profitableMonths,
+                    formatMonthLabel(peakIncomePoint.getMonth())
+            ));
+        }
+
+        if (safeAmount(dashboard.getUnpaidTax()).compareTo(ZERO) > 0) {
+            lines.add("当前仍有 %s 待缴税额，建议优先处理最近税期。".formatted(
+                    formatCompactMoney(dashboard.getUnpaidTax())
+            ));
+        } else {
+            lines.add("当前没有待缴情形，税务节奏整体平稳。");
+        }
+
+        return lines.stream().limit(3).toList();
+    }
+
+    private boolean hasHomeObservationData(HomeDashboardVO dashboard) {
+        if (dashboard == null) {
+            return false;
+        }
+        if (safeAmount(dashboard.getTotalIncome()).compareTo(ZERO) > 0
+                || safeAmount(dashboard.getTotalExpense()).compareTo(ZERO) > 0
+                || safeAmount(dashboard.getUnpaidTax()).compareTo(ZERO) > 0) {
+            return true;
+        }
+        if (dashboard.getTaxCalendar() != null && !dashboard.getTaxCalendar().isEmpty()) {
+            return true;
+        }
+        return dashboard.getMonthlyTrend() != null && dashboard.getMonthlyTrend().stream().anyMatch(point ->
+                safeAmount(point.getIncome()).compareTo(ZERO) != 0
+                        || safeAmount(point.getExpense()).compareTo(ZERO) != 0
+                        || safeAmount(point.getProfit()).compareTo(ZERO) != 0
+        );
+    }
+
+    private String buildPositiveProfitLine(HomeDashboardVO.MonthlyTrendPoint latest,
+                                           HomeDashboardVO.MonthlyTrendPoint previous) {
+        String monthLabel = formatMonthLabel(latest.getMonth());
+        if (previous == null) {
+            return "%s 净利润 %s，经营状态已形成首个观察点。".formatted(
+                    monthLabel,
+                    formatCompactMoney(latest.getProfit())
+            );
+        }
+
+        BigDecimal delta = safeAmount(latest.getProfit()).subtract(safeAmount(previous.getProfit()));
+        String direction = delta.compareTo(ZERO) >= 0 ? "较上月回升" : "较上月收窄";
+        return "%s 净利润 %s，%s。".formatted(
+                monthLabel,
+                formatCompactMoney(latest.getProfit()),
+                direction
+        );
+    }
+
+    private String buildNegativeProfitLine(HomeDashboardVO.MonthlyTrendPoint latest,
+                                           HomeDashboardVO.MonthlyTrendPoint previous) {
+        String monthLabel = formatMonthLabel(latest.getMonth());
+        BigDecimal latestLoss = safeAmount(latest.getProfit()).abs();
+        if (previous == null) {
+            return "%s 出现亏损 %s，建议先核对支出波动。".formatted(
+                    monthLabel,
+                    formatCompactMoney(latestLoss)
+            );
+        }
+
+        BigDecimal previousLoss = safeAmount(previous.getProfit()).abs();
+        String direction = latestLoss.compareTo(previousLoss) > 0 ? "亏损较上月扩大" : "亏损较上月收敛";
+        return "%s 出现亏损 %s，%s。".formatted(
+                monthLabel,
+                formatCompactMoney(latestLoss),
+                direction
+        );
+    }
+
+    private String getTaxStatusSummary(Integer status) {
+        return switch (status == null ? -1 : status) {
+            case 1 -> "已缴";
+            case 2 -> "免征";
+            default -> "待缴";
+        };
+    }
+
+    private String formatCompactMoney(BigDecimal amount) {
+        BigDecimal normalized = safeAmount(amount);
+        BigDecimal absolute = normalized.abs();
+        if (absolute.compareTo(BigDecimal.valueOf(10_000)) >= 0) {
+            BigDecimal value = normalized.divide(BigDecimal.valueOf(10_000), 1, RoundingMode.HALF_UP);
+            return "¥" + value.stripTrailingZeros().toPlainString() + "万";
+        }
+        return "¥" + normalized.setScale(0, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private String formatMonthLabel(String month) {
+        if (!StringUtils.hasText(month) || !month.contains("-")) {
+            return "最近完整月";
+        }
+        String[] segments = month.split("-");
+        if (segments.length != 2) {
+            return month;
+        }
+        return "%s年%s月".formatted(segments[0], segments[1]);
     }
 
     private List<HrDashboardVO.MonthlyTrendItem> buildHrMonthlyTrend(List<Employee> activeEmployees, MonthRange monthRange) {
@@ -410,6 +729,13 @@ public class DashboardServiceImpl implements DashboardService {
         item.setEmployeeCount(accumulator.employeeCount);
         item.setSalaryAmount(accumulator.salaryAmount);
         item.setRatio(safeDivide(accumulator.salaryAmount, totalSalary));
+        return item;
+    }
+
+    private HomeDashboardVO.DepartmentHeadcountItem toDepartmentHeadcountItem(String department, Long employeeCount) {
+        HomeDashboardVO.DepartmentHeadcountItem item = new HomeDashboardVO.DepartmentHeadcountItem();
+        item.setDepartment(department);
+        item.setEmployeeCount(employeeCount);
         return item;
     }
 
@@ -571,6 +897,10 @@ public class DashboardServiceImpl implements DashboardService {
             return "未分配部门";
         }
         return department.trim();
+    }
+
+    private boolean isUnassignedDepartment(String department) {
+        return normalizeDepartment(null).equals(department);
     }
 
     private String normalizeTaxType(String taxType) {

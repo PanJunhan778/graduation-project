@@ -2,6 +2,7 @@ import request from './request'
 import type {
   FinanceDashboardRange,
   FinanceDashboardVO,
+  HomeAiSummaryVO,
   HomeDashboardVO,
   HrDashboardRange,
   HrDashboardVO,
@@ -12,6 +13,10 @@ import type {
 
 export function getHomeDashboard(): Promise<Result<HomeDashboardVO>> {
   return request.get('/dashboard/home')
+}
+
+export function getHomeAiSummary(): Promise<Result<HomeAiSummaryVO>> {
+  return request.get('/dashboard/home-ai-summary')
 }
 
 export function getFinanceDashboard(range: FinanceDashboardRange): Promise<Result<FinanceDashboardVO>> {

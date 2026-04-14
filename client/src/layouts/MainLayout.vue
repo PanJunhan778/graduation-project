@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
-import Topbar from './components/Topbar.vue'
 
 const sidebarCollapsed = ref(false)
 const route = useRoute()
@@ -19,12 +18,11 @@ function toggleSidebar() {
 <template>
   <div class="main-layout">
     <Sidebar :collapsed="sidebarCollapsed" @toggle="toggleSidebar" />
-    <div class="main-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
-      <Topbar />
+    <main class="main-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
       <div class="page-container" :class="pageContainerClass">
         <router-view />
       </div>
-    </div>
+    </main>
   </div>
 </template>
 
@@ -33,12 +31,14 @@ function toggleSidebar() {
   display: flex;
   height: 100vh;
   min-height: 0;
-  background: #f6f5f4;
+  background:
+    radial-gradient(circle at top right, rgba(0, 117, 222, 0.08), transparent 30%),
+    linear-gradient(180deg, #f6f9fd 0%, #f4f2ef 100%);
 }
 
 .main-content {
-  margin-left: 220px;
-  width: calc(100vw - 220px);
+  margin-left: 228px;
+  width: calc(100vw - 228px);
   transition: margin-left 0.3s ease, width 0.3s ease;
   display: flex;
   flex-direction: column;
@@ -48,13 +48,13 @@ function toggleSidebar() {
 }
 
 .main-content.sidebar-collapsed {
-  margin-left: 64px;
-  width: calc(100vw - 64px);
+  margin-left: 80px;
+  width: calc(100vw - 80px);
 }
 
 .page-container {
   flex: 1;
-  padding: 24px;
+  padding: 16px;
   overflow-y: auto;
   min-height: 0;
   box-sizing: border-box;

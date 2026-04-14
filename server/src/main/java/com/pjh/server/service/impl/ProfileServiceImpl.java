@@ -16,6 +16,7 @@ import com.pjh.server.vo.ProfileVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -48,7 +49,7 @@ public class ProfileServiceImpl implements ProfileService {
             throw new BusinessException("旧密码错误");
         }
         if (!dto.getNewPassword().matches(Constants.PASSWORD_PATTERN)) {
-            throw new BusinessException("密码至少 8 位，须包含大写字母、小写字母和数字");
+            throw new BusinessException("密码至少 8 位，且须包含大写字母、小写字母和数字");
         }
         user.setPassword(BCrypt.hashpw(dto.getNewPassword()));
         userMapper.updateById(user);
@@ -68,10 +69,18 @@ public class ProfileServiceImpl implements ProfileService {
             throw new BusinessException("当前公司不存在");
         }
 
-        company.setName(dto.getName().trim());
-        company.setIndustry(normalizeOptionalText(dto.getIndustry()));
-        company.setTaxpayerType(normalizeOptionalText(dto.getTaxpayerType()));
-        company.setDescription(normalizeOptionalText(dto.getDescription()));
+        if (StringUtils.hasText(dto.getName())) {
+            company.setName(dto.getName().trim());
+        }
+        if (dto.getIndustry() != null) {
+            company.setIndustry(normalizeOptionalText(dto.getIndustry()));
+        }
+        if (dto.getTaxpayerType() != null) {
+            company.setTaxpayerType(normalizeOptionalText(dto.getTaxpayerType()));
+        }
+        if (dto.getDescription() != null) {
+            company.setDescription(normalizeOptionalText(dto.getDescription()));
+        }
         companyMapper.updateById(company);
 
         return toProfileVO(requireCurrentUser(), company);
