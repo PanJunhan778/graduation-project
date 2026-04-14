@@ -813,43 +813,52 @@ function toNumber(value: number | string | undefined | null) {
           </article>
         </div>
 
-        <article class="timeline-panel ds-card">
-          <div class="panel-header">
-            <div>
-              <span class="eyebrow">税务提醒</span>
-              <h2>税务时间轴</h2>
+        <div class="home-side-column">
+          <article class="timeline-panel ds-card">
+            <div class="panel-header">
+              <div>
+                <span class="eyebrow">税务提醒</span>
+                <h2>税务时间轴</h2>
+              </div>
             </div>
-          </div>
 
-          <div v-if="taxCalendar.length" class="timeline-scroll">
-            <div class="timeline-list">
-              <div
-                v-for="item in taxCalendar"
-                :key="`${item.taxPeriod}-${item.taxType}-${item.status}`"
-                class="timeline-item"
-              >
-                <div class="timeline-rail">
-                  <span class="timeline-dot" :class="getTaxStatusClass(item.status)" />
-                </div>
-                <div class="timeline-content">
-                  <div class="timeline-top">
-                    <span class="timeline-period">{{ item.taxPeriod }}</span>
-                    <span class="timeline-status" :class="getTaxStatusClass(item.status)">
-                      {{ getTaxStatusLabel(item.status) }}
-                    </span>
+            <div v-if="taxCalendar.length" class="timeline-scroll">
+              <div class="timeline-list">
+                <div
+                  v-for="item in taxCalendar"
+                  :key="`${item.taxPeriod}-${item.taxType}-${item.status}`"
+                  class="timeline-item"
+                >
+                  <div class="timeline-rail">
+                    <span class="timeline-dot" :class="getTaxStatusClass(item.status)" />
                   </div>
-                  <div class="timeline-title">{{ item.taxType }}</div>
-                  <div class="timeline-amount">{{ formatCurrency(item.amount) }}</div>
+                  <div class="timeline-content">
+                    <div class="timeline-top">
+                      <span class="timeline-period">{{ item.taxPeriod }}</span>
+                      <span class="timeline-status" :class="getTaxStatusClass(item.status)">
+                        {{ getTaxStatusLabel(item.status) }}
+                      </span>
+                    </div>
+                    <div class="timeline-title">{{ item.taxType }}</div>
+                    <div class="timeline-amount">{{ formatCurrency(item.amount) }}</div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div v-else class="panel-empty">
-            <h3>暂无税务节点</h3>
-            <p>税务档案录入后，这里会自动汇总待缴、已缴和免征节点。</p>
-          </div>
-        </article>
+            <div v-else class="panel-empty">
+              <h3>暂无税务节点</h3>
+              <p>税务档案录入后，这里会自动汇总待缴、已缴和免征节点。</p>
+            </div>
+          </article>
+
+          <button type="button" class="dashboard-entry-card ds-card" @click="navigateTo('/dashboard')">
+            <span class="dashboard-entry-text">进入数据看板，查看完整趋势</span>
+            <span class="dashboard-entry-icon" aria-hidden="true">
+              <el-icon :size="22"><DataAnalysis /></el-icon>
+            </span>
+          </button>
+        </div>
       </section>
 
       <div v-if="showExportStage" class="pdf-export-stage" aria-hidden="true">
@@ -1483,6 +1492,13 @@ function toNumber(value: number | string | undefined | null) {
   min-height: 0;
 }
 
+.home-side-column {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 0;
+}
+
 .insight-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1512,6 +1528,56 @@ function toNumber(value: number | string | undefined | null) {
 
 .timeline-panel {
   padding: 20px 18px 20px 20px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-entry-card {
+  min-height: 84px;
+  padding: 12px 18px 12px 20px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 24px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(246, 249, 252, 0.92));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  cursor: pointer;
+  color: rgba(15, 23, 42, 0.94);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.dashboard-entry-card:hover,
+.dashboard-entry-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(20, 115, 230, 0.16);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 1), rgba(244, 249, 255, 0.96));
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+  outline: none;
+}
+
+.dashboard-entry-text {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.55;
+  color: rgba(15, 23, 42, 0.92);
+}
+
+.dashboard-entry-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: rgba(20, 115, 230, 0.1);
+  color: #1473e6;
 }
 
 .panel-header {
@@ -1550,8 +1616,9 @@ function toNumber(value: number | string | undefined | null) {
 
 .timeline-scroll {
   margin-top: 14px;
-  min-height: 252px;
-  max-height: 312px;
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   padding-right: 8px;
 }
@@ -2121,8 +2188,8 @@ function toNumber(value: number | string | undefined | null) {
   }
 
   .timeline-scroll {
-    min-height: 224px;
-    max-height: 268px;
+    min-height: 0;
+    max-height: none;
   }
 }
 
@@ -2148,8 +2215,8 @@ function toNumber(value: number | string | undefined | null) {
   }
 
   .timeline-scroll {
-    min-height: 208px;
-    max-height: 244px;
+    min-height: 0;
+    max-height: none;
   }
 }
 
