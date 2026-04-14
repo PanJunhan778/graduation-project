@@ -38,6 +38,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -265,18 +266,26 @@ class DashboardServiceImplTest {
     @Test
     void getFinanceDashboardShouldAggregateExpenseBreakdownAndTopIncomeSources() {
         when(financeRecordMapper.selectList(any(LambdaQueryWrapper.class)))
-                .thenReturn(List.of(
-                        financeRecord(1L, "income", "18000.00", "咨询", "企业年框项目", "2026-04-05"),
-                        financeRecord(2L, "income", "16000.00", "软件", null, "2026-03-18"),
-                        financeRecord(3L, "income", "12000.00", null, null, "2026-02-12"),
-                        financeRecord(4L, "income", "9000.00", "代运营", "渠道合作", "2025-11-10"),
-                        financeRecord(5L, "income", "7000.00", "培训", null, "2025-08-20"),
-                        financeRecord(6L, "income", "5000.00", "顾问", "顾问包", "2025-06-15"),
-                        financeRecord(7L, "income", "4000.00", "外包", null, "2025-05-08"),
-                        financeRecord(8L, "expense", "8000.00", "营销", null, "2026-04-02"),
-                        financeRecord(9L, "expense", "5000.00", "", null, "2026-03-02"),
-                        financeRecord(10L, "expense", "2000.00", "人工", null, "2025-12-02")
-                ));
+                .thenReturn(
+                        List.of(
+                                financeRecord(1L, "income", "18000.00", "咨询", "企业年框项目", "2026-04-05"),
+                                financeRecord(2L, "income", "16000.00", "软件", null, "2026-03-18"),
+                                financeRecord(3L, "income", "12000.00", null, null, "2026-02-12"),
+                                financeRecord(4L, "income", "9000.00", "代运营", "渠道合作", "2025-11-10"),
+                                financeRecord(5L, "income", "7000.00", "培训", null, "2025-08-20"),
+                                financeRecord(6L, "income", "5000.00", "顾问", "顾问包", "2025-06-15"),
+                                financeRecord(7L, "income", "4000.00", "外包", null, "2025-05-08"),
+                                financeRecord(8L, "expense", "8000.00", "营销", null, "2026-04-02"),
+                                financeRecord(9L, "expense", "5000.00", "", null, "2026-03-02"),
+                                financeRecord(10L, "expense", "2000.00", "人工", null, "2025-12-02")
+                        ),
+                        List.of(
+                                financeRecord(11L, "income", "10000.00", "订阅", "长期客户", "2025-04-06"),
+                                financeRecord(12L, "income", "6000.00", "咨询", null, "2024-12-12"),
+                                financeRecord(13L, "expense", "3000.00", "营销", null, "2025-04-01"),
+                                financeRecord(14L, "expense", "1500.00", "差旅", null, "2025-01-12")
+                        )
+                );
 
         FinanceDashboardVO result = dashboardService.getFinanceDashboard("last12months");
 
@@ -288,6 +297,40 @@ class DashboardServiceImplTest {
         assertEquals(5, result.getTopIncomeSources().size());
         assertEquals(List.of("企业年框项目", "软件", "未标注来源", "渠道合作", "培训"),
                 result.getTopIncomeSources().stream().map(FinanceDashboardVO.TopIncomeSourceItem::getName).toList());
+        assertEquals(12, result.getMonthlyTrend().size());
+        assertEquals("2025-05", result.getMonthlyTrend().getFirst().getMonth());
+        assertEquals(0, result.getMonthlyTrend().getFirst().getProfit().compareTo(new BigDecimal("4000.00")));
+        assertEquals("2025-07", result.getMonthlyTrend().get(2).getMonth());
+        assertEquals(0, result.getMonthlyTrend().get(2).getProfit().compareTo(BigDecimal.ZERO));
+        assertEquals("2026-04", result.getMonthlyTrend().getLast().getMonth());
+        assertEquals(0, result.getMonthlyTrend().getLast().getProfit().compareTo(new BigDecimal("10000.00")));
+        assertEquals(7, result.getIncomeConcentration().getSourceCount());
+        assertEquals(0, result.getIncomeConcentration().getTop3Share().compareTo(new BigDecimal("0.6479")));
+        assertEquals(0, result.getIncomeConcentration().getTop5Share().compareTo(new BigDecimal("0.8732")));
+        assertEquals(0, result.getIncomeConcentration().getOtherShare().compareTo(new BigDecimal("0.1268")));
+        assertEquals("较前12个月", result.getPeriodComparison().getBaselineLabel());
+        assertEquals(0, result.getPeriodComparison().getIncomeChange().compareTo(new BigDecimal("55000.00")));
+        assertEquals(0, result.getPeriodComparison().getExpenseChange().compareTo(new BigDecimal("10500.00")));
+        assertEquals(0, result.getPeriodComparison().getProfitChange().compareTo(new BigDecimal("44500.00")));
+    }
+
+    @Test
+    void getFinanceDashboardShouldReturnFullHistoryTrendAndNullComparisonForAllRange() {
+        when(financeRecordMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(List.of(
+                        financeRecord(1L, "income", "10000.00", "咨询", "A项目", "2025-01-10"),
+                        financeRecord(2L, "expense", "2000.00", "营销", null, "2025-01-12"),
+                        financeRecord(3L, "income", "8000.00", "订阅", null, "2025-03-08"),
+                        financeRecord(4L, "expense", "1000.00", "人工", null, "2025-04-09")
+                ));
+
+        FinanceDashboardVO result = dashboardService.getFinanceDashboard("all");
+
+        assertNull(result.getPeriodComparison());
+        assertEquals(List.of("2025-01", "2025-02", "2025-03", "2025-04"),
+                result.getMonthlyTrend().stream().map(FinanceDashboardVO.MonthlyTrendItem::getMonth).toList());
+        assertEquals(0, result.getMonthlyTrend().get(1).getProfit().compareTo(BigDecimal.ZERO));
+        verify(financeRecordMapper, times(1)).selectList(any(LambdaQueryWrapper.class));
     }
 
     @Test
@@ -316,8 +359,15 @@ class DashboardServiceImplTest {
 
     @Test
     void getTaxDashboardShouldFilterPeriodsAndComputeTaxHealthMetrics() {
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(4L);
         when(taxRecordMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(List.of(
+                        taxRecord(1L, "2026-Q1", "增值税", 0, "3200.00"),
+                        taxRecord(2L, "2026-03", "附加税", 1, "1200.00"),
+                        taxRecord(3L, "2026-Annual", "企业所得税", 2, "4100.00"),
+                        taxRecord(4L, "2026-02", "个税退税", 1, "-600.00"),
+                        taxRecord(5L, "2025-Annual", "企业所得税", 0, "9000.00")
+                ), List.of(
                         taxRecord(1L, "2026-Q1", "增值税", 0, "3200.00"),
                         taxRecord(2L, "2026-03", "附加税", 1, "1200.00"),
                         taxRecord(3L, "2026-Annual", "企业所得税", 2, "4100.00"),
@@ -329,9 +379,12 @@ class DashboardServiceImplTest {
                         financeRecord(1L, "income", "100000.00", "软件", "年度合同", "2026-01-08"),
                         financeRecord(2L, "income", "25000.00", "咨询", null, "2026-03-18"),
                         financeRecord(3L, "expense", "5000.00", "营销", null, "2026-03-20")
+                ), List.of(
+                        financeRecord(4L, "income", "100000.00", "软件", "上一年合同", "2025-02-08"),
+                        financeRecord(5L, "expense", "8000.00", "营销", null, "2025-03-20")
                 ));
 
-        TaxDashboardVO result = dashboardService.getTaxDashboard("thisYear");
+        TaxDashboardVO result = dashboardService.getTaxDashboard("all");
 
         assertEquals(0, result.getPositiveTaxAmount().compareTo(new BigDecimal("8500.00")));
         assertEquals(0, result.getIncomeBase().compareTo(new BigDecimal("125000.00")));
@@ -343,22 +396,79 @@ class DashboardServiceImplTest {
         assertEquals(0, result.getStatusSummary().get(0).getAmount().compareTo(new BigDecimal("3200.00")));
         assertEquals(0, result.getStatusSummary().get(1).getAmount().compareTo(new BigDecimal("600.00")));
         assertEquals(0, result.getStatusSummary().get(2).getAmount().compareTo(new BigDecimal("4100.00")));
+        assertEquals("较去年同期", result.getPeriodComparison().getBaselineLabel());
+        assertEquals(0, result.getPeriodComparison().getPreviousTaxBurdenRate().compareTo(new BigDecimal("0.0900")));
+        assertEquals(0, result.getPeriodComparison().getBurdenRateDelta().compareTo(new BigDecimal("-0.0220")));
+        assertEquals(0, result.getPeriodComparison().getPreviousUnpaidTaxAmount().compareTo(new BigDecimal("9000.00")));
+        assertEquals(0, result.getPeriodComparison().getUnpaidTaxAmountDelta().compareTo(new BigDecimal("-5800.00")));
+        assertEquals(0, result.getPeriodComparison().getPreviousPositiveTaxAmount().compareTo(new BigDecimal("9000.00")));
+        assertEquals(0, result.getPeriodComparison().getPositiveTaxAmountDelta().compareTo(new BigDecimal("-500.00")));
+        assertEquals(1, result.getRecentOutstanding().size());
+        assertEquals("2026-Q1", result.getRecentOutstanding().getFirst().getTaxPeriod());
+        assertEquals("增值税", result.getRecentOutstanding().getFirst().getTaxType());
+        assertEquals(0, result.getRecentOutstanding().getFirst().getAmount().compareTo(new BigDecimal("3200.00")));
+
+        ArgumentCaptor<LambdaQueryWrapper> taxWrapperCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        ArgumentCaptor<LambdaQueryWrapper> financeWrapperCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(taxRecordMapper, times(2)).selectList(taxWrapperCaptor.capture());
+        verify(financeRecordMapper, times(2)).selectList(financeWrapperCaptor.capture());
+        assertTrue(taxWrapperCaptor.getAllValues().stream().allMatch(wrapper ->
+                wrapper.getParamNameValuePairs().containsValue(4L)
+        ));
+        assertTrue(financeWrapperCaptor.getAllValues().stream().allMatch(wrapper ->
+                wrapper.getParamNameValuePairs().containsValue(4L)
+        ));
     }
 
     @Test
     void getTaxDashboardShouldReturnZeroBurdenWhenNoPositiveIncomeBaseExists() {
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(4L);
         when(taxRecordMapper.selectList(any(LambdaQueryWrapper.class)))
-                .thenReturn(List.of(taxRecord(1L, "2026-Q1", "增值税", 0, "3200.00")));
+                .thenReturn(
+                        List.of(taxRecord(1L, "2026-Q1", "增值税", 0, "3200.00")),
+                        List.of()
+                );
         when(financeRecordMapper.selectList(any(LambdaQueryWrapper.class)))
                 .thenReturn(List.of(
                         financeRecord(1L, "expense", "6800.00", "采购", null, "2026-02-10"),
                         financeRecord(2L, "income", "-1000.00", "异常", null, "2026-03-12")
-                ));
+                ), List.of());
 
         TaxDashboardVO result = dashboardService.getTaxDashboard("thisYear");
 
         assertEquals(0, result.getIncomeBase().compareTo(BigDecimal.ZERO));
         assertEquals(0, result.getTaxBurdenRate().compareTo(BigDecimal.ZERO));
+        assertEquals(0, result.getPeriodComparison().getPreviousTaxBurdenRate().compareTo(BigDecimal.ZERO));
+    }
+
+    @Test
+    void getTaxDashboardShouldReturnNullComparisonForAllRangeAndLimitOutstandingItems() {
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(4L);
+        when(taxRecordMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(List.of(
+                        taxRecord(1L, "2026-04", "增值税", 0, "1200.00"),
+                        taxRecord(2L, "2026-03", "企业所得税", 0, "3100.00"),
+                        taxRecord(3L, "2026-03", "附加税", 0, "900.00"),
+                        taxRecord(4L, "2026-Q1", "印花税", 0, "600.00"),
+                        taxRecord(5L, "2026-Q1", "个人所得税", 0, "1800.00"),
+                        taxRecord(6L, "2025-Annual", "企业所得税", 0, "2700.00"),
+                        taxRecord(7L, "2025-12", "增值税", 1, "1500.00"),
+                        taxRecord(8L, "2025-11", "退税调整", 1, "-300.00")
+                ));
+        when(financeRecordMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(List.of(
+                        financeRecord(1L, "income", "50000.00", "软件", "年度服务", "2025-11-15"),
+                        financeRecord(2L, "income", "60000.00", "软件", "年度服务", "2026-03-15")
+                ));
+
+        TaxDashboardVO result = dashboardService.getTaxDashboard("thisYear");
+
+        assertNull(result.getPeriodComparison());
+        assertEquals(5, result.getRecentOutstanding().size());
+        assertEquals(List.of("2026-04", "2026-03", "2026-03", "2026-Q1", "2026-Q1"),
+                result.getRecentOutstanding().stream().map(TaxDashboardVO.OutstandingItem::getTaxPeriod).toList());
+        assertEquals(List.of("增值税", "企业所得税", "附加税", "个人所得税", "印花税"),
+                result.getRecentOutstanding().stream().map(TaxDashboardVO.OutstandingItem::getTaxType).toList());
     }
 
     private Map<String, Object> row(Object... values) {

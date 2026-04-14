@@ -298,12 +298,37 @@ export interface TopIncomeSourceItem {
   amount: number
 }
 
+export interface FinanceMonthlyTrendItem {
+  month: string
+  income: number
+  expense: number
+  profit: number
+}
+
+export interface FinanceIncomeConcentration {
+  top1Share: number
+  top3Share: number
+  top5Share: number
+  otherShare: number
+  sourceCount: number
+}
+
+export interface FinancePeriodComparison {
+  incomeChange: number
+  expenseChange: number
+  profitChange: number
+  baselineLabel: string
+}
+
 /** 财务剖析看板 */
 export interface FinanceDashboardVO {
   totalExpense: number
   totalIncome: number
   expenseBreakdown: FinanceExpenseBreakdownItem[]
   topIncomeSources: TopIncomeSourceItem[]
+  monthlyTrend: FinanceMonthlyTrendItem[]
+  incomeConcentration: FinanceIncomeConcentration
+  periodComparison: FinancePeriodComparison | null
 }
 
 /** 人事看板 - 部门薪资占比项 */
@@ -343,6 +368,22 @@ export interface TaxStatusSummaryItem {
   amount: number
 }
 
+export interface TaxPeriodComparison {
+  baselineLabel: string
+  previousTaxBurdenRate: number
+  burdenRateDelta: number
+  previousUnpaidTaxAmount: number
+  unpaidTaxAmountDelta: number
+  previousPositiveTaxAmount: number
+  positiveTaxAmountDelta: number
+}
+
+export interface TaxOutstandingItem {
+  taxPeriod: string
+  taxType: string
+  amount: number
+}
+
 /** 税务健康看板 */
 export interface TaxDashboardVO {
   taxBurdenRate: number
@@ -351,6 +392,8 @@ export interface TaxDashboardVO {
   unpaidTaxAmount: number
   taxTypeStructure: TaxTypeStructureItem[]
   statusSummary: TaxStatusSummaryItem[]
+  periodComparison: TaxPeriodComparison | null
+  recentOutstanding: TaxOutstandingItem[]
 }
 
 export type AiMessageType = 'text' | 'markdown' | 'action_required' | 'action_result'

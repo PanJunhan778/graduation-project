@@ -14,6 +14,8 @@ public class TaxDashboardVO {
     private BigDecimal unpaidTaxAmount;
     private List<TaxTypeStructureItem> taxTypeStructure;
     private List<StatusSummaryItem> statusSummary;
+    private PeriodComparison periodComparison;
+    private List<OutstandingItem> recentOutstanding;
 
     @Data
     public static class TaxTypeStructureItem {
@@ -26,6 +28,24 @@ public class TaxDashboardVO {
     public static class StatusSummaryItem {
         private Integer status;
         private Long count;
+        private BigDecimal amount;
+    }
+
+    @Data
+    public static class PeriodComparison {
+        private String baselineLabel;
+        private BigDecimal previousTaxBurdenRate;
+        private BigDecimal burdenRateDelta;
+        private BigDecimal previousUnpaidTaxAmount;
+        private BigDecimal unpaidTaxAmountDelta;
+        private BigDecimal previousPositiveTaxAmount;
+        private BigDecimal positiveTaxAmountDelta;
+    }
+
+    @Data
+    public static class OutstandingItem {
+        private String taxPeriod;
+        private String taxType;
         private BigDecimal amount;
     }
 }

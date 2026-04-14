@@ -137,38 +137,27 @@ public class DashboardServiceImpl implements DashboardService {
 
     @Override
     public FinanceDashboardVO getFinanceDashboard(String range) {
-        DateRange dateRange = resolveFinanceOrHrRange(range);
+        String normalizedRange = normalizeRange(range);
+        DateRange dateRange = resolveFinanceOrHrRange(normalizedRange);
         List<FinanceRecord> records = queryFinanceRecords(dateRange);
-
-        Map<String, BigDecimal> expenseMap = new LinkedHashMap<>();
-        Map<String, BigDecimal> incomeMap = new LinkedHashMap<>();
-        BigDecimal totalExpense = ZERO;
-        BigDecimal totalIncome = ZERO;
-
-        for (FinanceRecord record : records) {
-            BigDecimal amount = safeAmount(record.getAmount());
-            if ("expense".equals(record.getType())) {
-                totalExpense = totalExpense.add(amount);
-                expenseMap.merge(normalizeFinanceCategory(record.getCategory()), amount, BigDecimal::add);
-            } else if ("income".equals(record.getType())) {
-                totalIncome = totalIncome.add(amount);
-                incomeMap.merge(resolveIncomeSourceName(record), amount, BigDecimal::add);
-            }
-        }
+        FinanceAggregation aggregation = aggregateFinanceRecords(records);
 
         FinanceDashboardVO result = new FinanceDashboardVO();
-        result.setTotalExpense(totalExpense);
-        result.setTotalIncome(totalIncome);
-        BigDecimal finalTotalExpense = totalExpense;
-        result.setExpenseBreakdown(expenseMap.entrySet().stream()
+        result.setTotalExpense(aggregation.totalExpense());
+        result.setTotalIncome(aggregation.totalIncome());
+        BigDecimal finalTotalExpense = aggregation.totalExpense();
+        result.setExpenseBreakdown(aggregation.expenseMap().entrySet().stream()
                 .sorted(Map.Entry.<String, BigDecimal>comparingByValue().reversed().thenComparing(Map.Entry::getKey))
                 .map(entry -> toExpenseBreakdownItem(entry.getKey(), entry.getValue(), finalTotalExpense))
                 .toList());
-        result.setTopIncomeSources(incomeMap.entrySet().stream()
+        result.setTopIncomeSources(aggregation.incomeMap().entrySet().stream()
                 .sorted(Map.Entry.<String, BigDecimal>comparingByValue().reversed().thenComparing(Map.Entry::getKey))
                 .limit(5)
                 .map(entry -> toTopIncomeSourceItem(entry.getKey(), entry.getValue()))
                 .toList());
+        result.setMonthlyTrend(buildFinanceMonthlyTrend(records, dateRange, normalizedRange));
+        result.setIncomeConcentration(buildFinanceIncomeConcentration(aggregation.incomeMap(), aggregation.totalIncome()));
+        result.setPeriodComparison(buildFinancePeriodComparison(normalizedRange, aggregation));
         return result;
     }
 
@@ -212,9 +201,11 @@ public class DashboardServiceImpl implements DashboardService {
 
     @Override
     public TaxDashboardVO getTaxDashboard(String range) {
-        DateRange financeRange = resolveTaxFinanceRange(range);
-        DateRange taxRange = resolveTaxPeriodRange(range);
-        List<TaxRecord> records = queryTaxRecords().stream()
+        String normalizedRange = normalizeRange(range);
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        DateRange financeRange = resolveTaxFinanceRange(normalizedRange);
+        DateRange taxRange = resolveTaxPeriodRange(normalizedRange);
+        List<TaxRecord> records = queryTaxRecords(companyId).stream()
                 .filter(record -> isTaxRecordWithinRange(record, taxRange))
                 .toList();
 
@@ -243,17 +234,14 @@ public class DashboardServiceImpl implements DashboardService {
             }
         }
 
-        BigDecimal incomeBase = queryFinanceRecords(financeRange).stream()
-                .filter(record -> "income".equals(record.getType()))
-                .map(FinanceRecord::getAmount)
-                .filter(amount -> amount != null && amount.compareTo(ZERO) > 0)
-                .reduce(ZERO, BigDecimal::add);
+        BigDecimal incomeBase = buildTaxIncomeBase(financeRange, companyId);
+        BigDecimal taxBurdenRate = safeDivide(positiveTaxAmount, incomeBase);
 
         TaxDashboardVO result = new TaxDashboardVO();
         result.setPositiveTaxAmount(positiveTaxAmount);
         result.setIncomeBase(incomeBase);
         result.setUnpaidTaxAmount(unpaidTaxAmount);
-        result.setTaxBurdenRate(safeDivide(positiveTaxAmount, incomeBase));
+        result.setTaxBurdenRate(taxBurdenRate);
         BigDecimal finalPositiveTaxAmount = positiveTaxAmount;
         result.setTaxTypeStructure(taxTypeMap.entrySet().stream()
                 .sorted(Map.Entry.<String, BigDecimal>comparingByValue().reversed().thenComparing(Map.Entry::getKey))
@@ -263,6 +251,12 @@ public class DashboardServiceImpl implements DashboardService {
                 .sorted(Map.Entry.comparingByKey())
                 .map(entry -> toStatusSummaryItem(entry.getKey(), entry.getValue()))
                 .toList());
+        result.setPeriodComparison(buildTaxPeriodComparison(
+                normalizedRange,
+                companyId,
+                new TaxComparisonSnapshot(positiveTaxAmount, unpaidTaxAmount, taxBurdenRate)
+        ));
+        result.setRecentOutstanding(buildRecentOutstanding(records));
         return result;
     }
 
@@ -316,6 +310,19 @@ public class DashboardServiceImpl implements DashboardService {
         return financeRecordMapper.selectList(wrapper);
     }
 
+    private List<FinanceRecord> queryFinanceRecords(DateRange dateRange, Long companyId) {
+        LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<FinanceRecord>()
+                .eq(FinanceRecord::getCompanyId, companyId);
+        if (dateRange.start() != null) {
+            wrapper.ge(FinanceRecord::getDate, dateRange.start());
+        }
+        if (dateRange.end() != null) {
+            wrapper.le(FinanceRecord::getDate, dateRange.end());
+        }
+        wrapper.orderByAsc(FinanceRecord::getDate).orderByAsc(FinanceRecord::getId);
+        return financeRecordMapper.selectList(wrapper);
+    }
+
     private List<Employee> queryActiveEmployees() {
         Long companyId = currentSessionService.requireCurrentCompanyId();
         LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<Employee>()
@@ -328,6 +335,13 @@ public class DashboardServiceImpl implements DashboardService {
 
     private List<TaxRecord> queryTaxRecords() {
         LambdaQueryWrapper<TaxRecord> wrapper = new LambdaQueryWrapper<TaxRecord>()
+                .orderByAsc(TaxRecord::getId);
+        return taxRecordMapper.selectList(wrapper);
+    }
+
+    private List<TaxRecord> queryTaxRecords(Long companyId) {
+        LambdaQueryWrapper<TaxRecord> wrapper = new LambdaQueryWrapper<TaxRecord>()
+                .eq(TaxRecord::getCompanyId, companyId)
                 .orderByAsc(TaxRecord::getId);
         return taxRecordMapper.selectList(wrapper);
     }
@@ -369,6 +383,201 @@ public class DashboardServiceImpl implements DashboardService {
             trend.add(point);
         }
         return trend;
+    }
+
+    private FinanceAggregation aggregateFinanceRecords(List<FinanceRecord> records) {
+        Map<String, BigDecimal> expenseMap = new LinkedHashMap<>();
+        Map<String, BigDecimal> incomeMap = new LinkedHashMap<>();
+        BigDecimal totalExpense = ZERO;
+        BigDecimal totalIncome = ZERO;
+
+        for (FinanceRecord record : records) {
+            BigDecimal amount = safeAmount(record.getAmount());
+            if ("expense".equals(record.getType())) {
+                totalExpense = totalExpense.add(amount);
+                expenseMap.merge(normalizeFinanceCategory(record.getCategory()), amount, BigDecimal::add);
+            } else if ("income".equals(record.getType())) {
+                totalIncome = totalIncome.add(amount);
+                incomeMap.merge(resolveIncomeSourceName(record), amount, BigDecimal::add);
+            }
+        }
+
+        return new FinanceAggregation(totalIncome, totalExpense, incomeMap, expenseMap);
+    }
+
+    private List<FinanceDashboardVO.MonthlyTrendItem> buildFinanceMonthlyTrend(List<FinanceRecord> records,
+                                                                                DateRange dateRange,
+                                                                                String normalizedRange) {
+        if ("all".equals(normalizedRange) && records.isEmpty()) {
+            return List.of();
+        }
+
+        YearMonth startMonth;
+        YearMonth endMonth;
+        if ("all".equals(normalizedRange)) {
+            LocalDate earliestDate = records.stream()
+                    .map(FinanceRecord::getDate)
+                    .filter(Objects::nonNull)
+                    .min(LocalDate::compareTo)
+                    .orElse(null);
+            LocalDate latestDate = records.stream()
+                    .map(FinanceRecord::getDate)
+                    .filter(Objects::nonNull)
+                    .max(LocalDate::compareTo)
+                    .orElse(null);
+            if (earliestDate == null || latestDate == null) {
+                return List.of();
+            }
+            startMonth = YearMonth.from(earliestDate);
+            endMonth = YearMonth.from(latestDate);
+        } else {
+            startMonth = YearMonth.from(dateRange.start());
+            endMonth = YearMonth.from(dateRange.end());
+        }
+
+        Map<String, FinanceMonthAccumulator> monthMap = new LinkedHashMap<>();
+        for (FinanceRecord record : records) {
+            if (record.getDate() == null) {
+                continue;
+            }
+            String monthKey = YearMonth.from(record.getDate()).format(MONTH_FORMATTER);
+            FinanceMonthAccumulator accumulator = monthMap.computeIfAbsent(monthKey, ignored -> new FinanceMonthAccumulator());
+            BigDecimal amount = safeAmount(record.getAmount());
+            if ("income".equals(record.getType())) {
+                accumulator.income = accumulator.income.add(amount);
+            } else if ("expense".equals(record.getType())) {
+                accumulator.expense = accumulator.expense.add(amount);
+            }
+        }
+
+        List<FinanceDashboardVO.MonthlyTrendItem> trend = new ArrayList<>();
+        YearMonth currentMonth = startMonth;
+        while (!currentMonth.isAfter(endMonth)) {
+            String monthKey = currentMonth.format(MONTH_FORMATTER);
+            FinanceMonthAccumulator accumulator = monthMap.getOrDefault(monthKey, new FinanceMonthAccumulator());
+            FinanceDashboardVO.MonthlyTrendItem item = new FinanceDashboardVO.MonthlyTrendItem();
+            item.setMonth(monthKey);
+            item.setIncome(accumulator.income);
+            item.setExpense(accumulator.expense);
+            item.setProfit(accumulator.income.subtract(accumulator.expense));
+            trend.add(item);
+            currentMonth = currentMonth.plusMonths(1);
+        }
+        return trend;
+    }
+
+    private FinanceDashboardVO.IncomeConcentration buildFinanceIncomeConcentration(Map<String, BigDecimal> incomeMap,
+                                                                                   BigDecimal totalIncome) {
+        List<BigDecimal> sortedAmounts = incomeMap.entrySet().stream()
+                .sorted(Map.Entry.<String, BigDecimal>comparingByValue().reversed().thenComparing(Map.Entry::getKey))
+                .map(Map.Entry::getValue)
+                .toList();
+
+        BigDecimal top1 = sumTop(sortedAmounts, 1);
+        BigDecimal top3 = sumTop(sortedAmounts, 3);
+        BigDecimal top5 = sumTop(sortedAmounts, 5);
+
+        FinanceDashboardVO.IncomeConcentration concentration = new FinanceDashboardVO.IncomeConcentration();
+        concentration.setTop1Share(safeDivide(top1, totalIncome));
+        concentration.setTop3Share(safeDivide(top3, totalIncome));
+        concentration.setTop5Share(safeDivide(top5, totalIncome));
+        concentration.setOtherShare(safeDivide(totalIncome.subtract(top5).max(ZERO), totalIncome));
+        concentration.setSourceCount(incomeMap.size());
+        return concentration;
+    }
+
+    private FinanceDashboardVO.PeriodComparison buildFinancePeriodComparison(String normalizedRange,
+                                                                             FinanceAggregation currentAggregation) {
+        if ("all".equals(normalizedRange)) {
+            return null;
+        }
+
+        DateRange previousRange = resolvePreviousFinanceRange(normalizedRange);
+        FinanceAggregation previousAggregation = aggregateFinanceRecords(queryFinanceRecords(previousRange));
+        BigDecimal currentProfit = currentAggregation.totalIncome().subtract(currentAggregation.totalExpense());
+        BigDecimal previousProfit = previousAggregation.totalIncome().subtract(previousAggregation.totalExpense());
+
+        FinanceDashboardVO.PeriodComparison comparison = new FinanceDashboardVO.PeriodComparison();
+        comparison.setIncomeChange(currentAggregation.totalIncome().subtract(previousAggregation.totalIncome()));
+        comparison.setExpenseChange(currentAggregation.totalExpense().subtract(previousAggregation.totalExpense()));
+        comparison.setProfitChange(currentProfit.subtract(previousProfit));
+        comparison.setBaselineLabel(resolveFinanceBaselineLabel(normalizedRange));
+        return comparison;
+    }
+
+    private TaxDashboardVO.PeriodComparison buildTaxPeriodComparison(String normalizedRange,
+                                                                     Long companyId,
+                                                                     TaxComparisonSnapshot currentSnapshot) {
+        if ("all".equals(normalizedRange)) {
+            return null;
+        }
+
+        DateRange previousFinanceRange = resolvePreviousTaxFinanceRange(normalizedRange);
+        DateRange previousTaxRange = resolvePreviousTaxPeriodRange(normalizedRange);
+        TaxComparisonSnapshot previousSnapshot = buildTaxComparisonSnapshot(previousTaxRange, previousFinanceRange, companyId);
+
+        TaxDashboardVO.PeriodComparison comparison = new TaxDashboardVO.PeriodComparison();
+        comparison.setBaselineLabel(resolveTaxBaselineLabel(normalizedRange));
+        comparison.setPreviousTaxBurdenRate(previousSnapshot.taxBurdenRate());
+        comparison.setBurdenRateDelta(currentSnapshot.taxBurdenRate().subtract(previousSnapshot.taxBurdenRate()));
+        comparison.setPreviousUnpaidTaxAmount(previousSnapshot.unpaidTaxAmount());
+        comparison.setUnpaidTaxAmountDelta(currentSnapshot.unpaidTaxAmount().subtract(previousSnapshot.unpaidTaxAmount()));
+        comparison.setPreviousPositiveTaxAmount(previousSnapshot.positiveTaxAmount());
+        comparison.setPositiveTaxAmountDelta(currentSnapshot.positiveTaxAmount().subtract(previousSnapshot.positiveTaxAmount()));
+        return comparison;
+    }
+
+    private TaxComparisonSnapshot buildTaxComparisonSnapshot(DateRange taxRange,
+                                                             DateRange financeRange,
+                                                             Long companyId) {
+        BigDecimal positiveTaxAmount = ZERO;
+        BigDecimal unpaidTaxAmount = ZERO;
+
+        for (TaxRecord record : queryTaxRecords(companyId)) {
+            if (!isTaxRecordWithinRange(record, taxRange)) {
+                continue;
+            }
+            BigDecimal amount = safeAmount(record.getTaxAmount());
+            if (amount.compareTo(ZERO) <= 0) {
+                continue;
+            }
+            positiveTaxAmount = positiveTaxAmount.add(amount);
+            if (record.getPaymentStatus() != null && record.getPaymentStatus() == 0) {
+                unpaidTaxAmount = unpaidTaxAmount.add(amount);
+            }
+        }
+
+        BigDecimal incomeBase = buildTaxIncomeBase(financeRange, companyId);
+        return new TaxComparisonSnapshot(
+                positiveTaxAmount,
+                unpaidTaxAmount,
+                safeDivide(positiveTaxAmount, incomeBase)
+        );
+    }
+
+    private BigDecimal buildTaxIncomeBase(DateRange financeRange, Long companyId) {
+        return queryFinanceRecords(financeRange, companyId).stream()
+                .filter(record -> "income".equals(record.getType()))
+                .map(FinanceRecord::getAmount)
+                .filter(amount -> amount != null && amount.compareTo(ZERO) > 0)
+                .reduce(ZERO, BigDecimal::add);
+    }
+
+    private List<TaxDashboardVO.OutstandingItem> buildRecentOutstanding(List<TaxRecord> records) {
+        return records.stream()
+                .filter(record -> record != null && record.getPaymentStatus() != null && record.getPaymentStatus() == 0)
+                .filter(record -> safeAmount(record.getTaxAmount()).compareTo(ZERO) > 0)
+                .sorted(
+                        Comparator.comparing(
+                                        (TaxRecord record) -> resolveTaxPeriodSortDate(record.getTaxPeriod())
+                                )
+                                .reversed()
+                                .thenComparing(record -> safeAmount(record.getTaxAmount()), Comparator.reverseOrder())
+                                .thenComparing(TaxRecord::getId, Comparator.reverseOrder())
+                )
+                .limit(5)
+                .map(this::toOutstandingItem)
+                .toList();
     }
 
     private List<HomeDashboardVO.DepartmentHeadcountItem> buildHomeDepartmentHeadcount(List<Employee> activeEmployees) {
@@ -759,6 +968,60 @@ public class DashboardServiceImpl implements DashboardService {
         return item;
     }
 
+    private TaxDashboardVO.OutstandingItem toOutstandingItem(TaxRecord record) {
+        TaxDashboardVO.OutstandingItem item = new TaxDashboardVO.OutstandingItem();
+        item.setTaxPeriod(record.getTaxPeriod());
+        item.setTaxType(normalizeTaxType(record.getTaxType()));
+        item.setAmount(safeAmount(record.getTaxAmount()));
+        return item;
+    }
+
+    private DateRange resolvePreviousFinanceRange(String range) {
+        YearMonth currentMonth = YearMonth.from(LocalDate.now(clock));
+        return switch (range) {
+            case "last3months" -> new DateRange(currentMonth.minusMonths(5).atDay(1), currentMonth.minusMonths(3).atEndOfMonth());
+            case "last6months" -> new DateRange(currentMonth.minusMonths(11).atDay(1), currentMonth.minusMonths(6).atEndOfMonth());
+            case "last12months" -> new DateRange(currentMonth.minusMonths(23).atDay(1), currentMonth.minusMonths(12).atEndOfMonth());
+            default -> throw new BusinessException("不支持的统计范围");
+        };
+    }
+
+    private String resolveFinanceBaselineLabel(String range) {
+        return switch (range) {
+            case "last3months" -> "较前3个月";
+            case "last6months" -> "较前6个月";
+            case "last12months" -> "较前12个月";
+            default -> "";
+        };
+    }
+
+    private DateRange resolvePreviousTaxFinanceRange(String range) {
+        YearMonth currentMonth = YearMonth.from(LocalDate.now(clock));
+        return switch (range) {
+            case "thisYear" -> new DateRange(
+                    LocalDate.of(currentMonth.getYear() - 1, 1, 1),
+                    YearMonth.of(currentMonth.getYear() - 1, currentMonth.getMonthValue()).atEndOfMonth()
+            );
+            case "last12months" -> new DateRange(
+                    currentMonth.minusMonths(23).atDay(1),
+                    currentMonth.minusMonths(12).atEndOfMonth()
+            );
+            default -> throw new BusinessException("不支持的税务统计范围");
+        };
+    }
+
+    private DateRange resolvePreviousTaxPeriodRange(String range) {
+        return resolvePreviousTaxFinanceRange(range);
+    }
+
+    private String resolveTaxBaselineLabel(String range) {
+        return switch (range) {
+            case "thisYear" -> "较去年同期";
+            case "last12months" -> "较前12个月";
+            default -> "";
+        };
+    }
+
     private LocalDate resolveTaxPeriodSortDate(String taxPeriod) {
         if (taxPeriod == null) {
             return LocalDate.MIN;
@@ -921,6 +1184,12 @@ public class DashboardServiceImpl implements DashboardService {
         return numerator.divide(denominator, 4, java.math.RoundingMode.HALF_UP);
     }
 
+    private BigDecimal sumTop(List<BigDecimal> amounts, int limit) {
+        return amounts.stream()
+                .limit(limit)
+                .reduce(ZERO, BigDecimal::add);
+    }
+
     private BigDecimal getBigDecimal(Map<String, Object> row, String key) {
         Object value = getValueIgnoreCase(row, key);
         if (value == null) {
@@ -955,6 +1224,17 @@ public class DashboardServiceImpl implements DashboardService {
     private record MonthRange(YearMonth startMonth, YearMonth endMonth) {
     }
 
+    private record FinanceAggregation(BigDecimal totalIncome,
+                                      BigDecimal totalExpense,
+                                      Map<String, BigDecimal> incomeMap,
+                                      Map<String, BigDecimal> expenseMap) {
+    }
+
+    private static class FinanceMonthAccumulator {
+        private BigDecimal income = ZERO;
+        private BigDecimal expense = ZERO;
+    }
+
     private static class DepartmentAccumulator {
         private long employeeCount;
         private BigDecimal salaryAmount = ZERO;
@@ -963,5 +1243,10 @@ public class DashboardServiceImpl implements DashboardService {
     private static class StatusAccumulator {
         private long count;
         private BigDecimal amount = ZERO;
+    }
+
+    private record TaxComparisonSnapshot(BigDecimal positiveTaxAmount,
+                                         BigDecimal unpaidTaxAmount,
+                                         BigDecimal taxBurdenRate) {
     }
 }
