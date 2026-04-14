@@ -45,6 +45,8 @@ const homeDepartmentChartImage = ref('')
 let trendChart: EChartsType | null = null
 let departmentChart: EChartsType | null = null
 let resizeObserver: ResizeObserver | null = null
+let aiSummaryAbortController: AbortController | null = null
+let aiSummaryRequestId = 0
 
 const showLoadingSkeleton = useDelayedLoading(() => loading.value && !dashboard.value && !errorMessage.value)
 
@@ -168,7 +170,7 @@ const aiSummaryGeneratedText = computed(() =>
 )
 const exportAiLines = computed(() => {
   if (aiSummaryLines.value.length) return aiSummaryLines.value
-  if (aiSummaryLoading.value) return ['AI 总结生成中...']
+  if (aiSummaryLoading.value) return ['AI 正在生成速记，首次加载可能需要几十秒。']
   if (aiSummaryError.value) return ['AI 摘要暂时不可用，可进入 AI 助理继续追问。']
   return ['AI 会根据近 6 个完整月份的经营数据自动生成短摘要。']
 })
@@ -186,6 +188,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cancelAiSummaryRequest()
   disconnectChartObserver()
   disposeCharts()
 })
@@ -193,6 +196,7 @@ onBeforeUnmount(() => {
 async function fetchDashboardData() {
   loading.value = true
   errorMessage.value = ''
+  cancelAiSummaryRequest()
   aiSummary.value = null
   aiSummaryError.value = ''
   aiSummaryLoading.value = false
@@ -214,17 +218,40 @@ async function fetchDashboardData() {
 }
 
 async function fetchAiSummary() {
+  cancelAiSummaryRequest()
+  const requestId = ++aiSummaryRequestId
+  const controller = new AbortController()
+  aiSummaryAbortController = controller
   aiSummaryLoading.value = true
   aiSummaryError.value = ''
 
   try {
-    const res = await getHomeAiSummary()
+    const res = await getHomeAiSummary({ signal: controller.signal })
+    if (controller.signal.aborted || requestId !== aiSummaryRequestId) return
     aiSummary.value = normalizeAiSummary(res.data)
   } catch (error) {
+    if (isAiSummaryAbortError(error) || controller.signal.aborted || requestId !== aiSummaryRequestId) {
+      return
+    }
     aiSummaryError.value = (error as { message?: string })?.message || 'AI 摘要暂时不可用'
   } finally {
-    aiSummaryLoading.value = false
+    if (aiSummaryAbortController === controller) {
+      aiSummaryAbortController = null
+      aiSummaryLoading.value = false
+    }
   }
+}
+
+function cancelAiSummaryRequest() {
+  aiSummaryAbortController?.abort()
+  aiSummaryAbortController = null
+}
+
+function isAiSummaryAbortError(error: unknown) {
+  const candidate = error as { code?: string; name?: string; message?: string }
+  return candidate?.code === 'ERR_CANCELED'
+    || candidate?.name === 'CanceledError'
+    || candidate?.name === 'AbortError'
 }
 
 async function handleExportHome() {
@@ -707,7 +734,7 @@ function toNumber(value: number | string | undefined | null) {
                     <div class="skeleton-line skeleton-body short" />
                     <div class="skeleton-line skeleton-body short" />
                   </div>
-                  <p class="ai-helper-text">AI 总结生成中...</p>
+                  <p class="ai-helper-text">AI 正在生成速记，首次加载可能需要几十秒。</p>
                 </template>
 
                 <template v-else-if="homeAiSummaryLines.length">

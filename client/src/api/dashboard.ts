@@ -15,8 +15,16 @@ export function getHomeDashboard(): Promise<Result<HomeDashboardVO>> {
   return request.get('/dashboard/home')
 }
 
-export function getHomeAiSummary(): Promise<Result<HomeAiSummaryVO>> {
-  return request.get('/dashboard/home-ai-summary')
+interface HomeAiSummaryRequestOptions {
+  signal?: AbortSignal
+}
+
+export function getHomeAiSummary(options?: HomeAiSummaryRequestOptions): Promise<Result<HomeAiSummaryVO>> {
+  return request.get('/dashboard/home-ai-summary', {
+    timeout: 75000,
+    signal: options?.signal,
+    silentError: true,
+  })
 }
 
 export function getFinanceDashboard(range: FinanceDashboardRange): Promise<Result<FinanceDashboardVO>> {
