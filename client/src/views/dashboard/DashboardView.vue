@@ -26,6 +26,9 @@ import {
   GridComponent,
   LegendComponent,
   TooltipComponent,
+  MarkLineComponent,
+  MarkPointComponent,
+  ToolboxComponent,
 } from 'echarts/components'
 
 use([
@@ -36,6 +39,9 @@ use([
   LegendComponent,
   TooltipComponent,
   DataZoomComponent,
+  MarkLineComponent,
+  MarkPointComponent,
+  ToolboxComponent,
   CanvasRenderer,
 ])
 
@@ -661,7 +667,7 @@ function renderFinanceExpenseChart(data: FinanceDashboardVO) {
         color: '#615d59',
         formatter: (value: number) => formatAxisCurrency(value),
       },
-      splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
     },
     yAxis: {
       type: 'category',
@@ -754,7 +760,7 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
           color: '#615d59',
           formatter: (value: number) => formatAxisCurrency(value),
         },
-        splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+        splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
       },
       {
         type: 'value',
@@ -775,9 +781,9 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
         borderRadius: [12, 12, 0, 0],
         itemStyle: {
           color: '#1375d1',
-          shadowColor: 'rgba(19, 117, 209, 0.18)',
-          shadowBlur: 18,
-          shadowOffsetY: 10,
+          shadowColor: 'rgba(19, 117, 209, 0.25)',
+          shadowBlur: 20,
+          shadowOffsetY: 12,
         },
         data: items.map((item) => item.amount),
         label: {
@@ -793,9 +799,9 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
         yAxisIndex: 1,
         smooth: true,
         symbolSize: 8,
-        lineStyle: { width: 3 },
+        lineStyle: { width: 4 },
         itemStyle: { color: '#213183' },
-        areaStyle: { color: 'rgba(33, 49, 131, 0.08)' },
+        areaStyle: { color: 'rgba(33, 49, 131, 0.12)' },
         data: cumulativeRatios,
         label: {
           show: true,
@@ -844,13 +850,39 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
       itemHeight: 8,
       textStyle: { color: '#615d59' },
     },
+    toolbox: {
+      show: true,
+      right: 14,
+      top: 0,
+      feature: {
+        magicType: { show: true, type: ['line', 'bar'] },
+        restore: { show: true }
+      },
+      iconStyle: { borderColor: '#8892a5' }
+    },
     grid: {
       top: 44,
       left: 14,
       right: 14,
-      bottom: 12,
+      bottom: 40,
       containLabel: true,
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        start: 0,
+        end: 100
+      },
+      {
+        type: 'slider',
+        height: 16,
+        bottom: 8,
+        brushSelect: false,
+        borderColor: 'transparent',
+        fillerColor: 'rgba(33, 49, 131, 0.08)',
+        handleStyle: { color: '#213183' }
+      }
+    ],
     xAxis: {
       type: 'category',
       axisTick: { show: false },
@@ -867,7 +899,7 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         color: '#615d59',
         formatter: (value: number) => formatAxisCurrency(value),
       },
-      splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
     },
     series: [
       {
@@ -877,9 +909,9 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         borderRadius: [8, 8, 0, 0],
         itemStyle: {
           color: (params: { value: number }) => (params.value >= 0 ? '#213183' : '#d1495b'),
-          shadowColor: 'rgba(33, 49, 131, 0.12)',
-          shadowBlur: 12,
-          shadowOffsetY: 6,
+          shadowColor: 'rgba(33, 49, 131, 0.18)',
+          shadowBlur: 16,
+          shadowOffsetY: 8,
         },
         data: data.monthlyTrend.map((item) => item.profit),
       },
@@ -887,18 +919,20 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         name: '收入',
         type: 'line',
         smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 3 },
-        areaStyle: { color: 'rgba(42, 157, 153, 0.08)' },
+        showSymbol: true,
+        symbolSize: 6,
+        lineStyle: { width: 4 },
+        areaStyle: { color: 'rgba(42, 157, 153, 0.12)' },
         data: data.monthlyTrend.map((item) => item.income),
       },
       {
         name: '支出',
         type: 'line',
         smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 3 },
-        areaStyle: { color: 'rgba(221, 91, 0, 0.06)' },
+        showSymbol: true,
+        symbolSize: 6,
+        lineStyle: { width: 4 },
+        areaStyle: { color: 'rgba(221, 91, 0, 0.08)' },
         data: data.monthlyTrend.map((item) => item.expense),
       },
     ],
@@ -1088,7 +1122,7 @@ function renderHrTrendChart(data: HrDashboardVO) {
           color: '#615d59',
           formatter: (value: number) => formatAxisCurrency(value),
         },
-        splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+        splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
       },
       {
         type: 'value',
@@ -1135,8 +1169,8 @@ function renderHrTrendChart(data: HrDashboardVO) {
         yAxisIndex: 0,
         smooth: true,
         symbolSize: 8,
-        lineStyle: { width: 3 },
-        areaStyle: { color: 'rgba(221, 91, 0, 0.08)' },
+        lineStyle: { width: 4 },
+        areaStyle: { color: 'rgba(221, 91, 0, 0.12)' },
         itemStyle: { color: '#dd5b00' },
         data: items.map((item) => item.averageSalary),
       },
@@ -1580,11 +1614,81 @@ function toNumber(value: number | string | undefined | null) {
           </div>
 
           <template v-else-if="financeState.data">
-            <section class="feature-layout feature-layout--finance-diagnostic">
-              <article class="feature-primary feature-primary--finance ds-card">
+            <!-- 顶区：4 KPI卡片 -->
+            <section class="signal-grid-top">
+              <article class="signal-card signal-card--finance-structure ds-card">
+                <span class="signal-label">Top3 收入占比</span>
+                <strong class="signal-value">{{ financeSourceCount > 0 ? formatRatio(financeTop3Share) : '—' }}</strong>
+                <p>
+                  {{
+                    financeSourceCount > 0
+                      ? `${formatCount(financeSourceCount)} 个来源里，前三大来源贡献了主要现金入口。`
+                      : '等待收入来源形成后，再判断集中风险。'
+                  }}
+                </p>
+              </article>
+
+              <article class="signal-card signal-card--finance-pressure ds-card" :class="financeCoverageRatio >= 0.7 ? 'is-alert' : ''">
+                <span class="signal-label">成本吞噬率</span>
+                <strong class="signal-value" :class="financeCoverageRatio >= 0.7 ? 'expense' : ''">
+                  {{ toNumber(financeState.data.totalIncome) > 0 ? formatRatio(financeCoverageRatio) : '—' }}
+                </strong>
+                <p>{{ financeCoverageHeadline }}</p>
+              </article>
+
+              <article class="signal-card signal-card--finance-balance ds-card" :class="financeNetSpread < 0 ? 'is-alert' : 'is-positive'">
+                <span class="signal-label">净流差</span>
+                <strong class="signal-value" :class="financeNetSpread >= 0 ? 'income' : 'expense'">
+                  {{ formatSignedCurrency(financeNetSpread) }}
+                </strong>
+                <p>
+                  {{
+                    toNumber(financeState.data.totalIncome) > 0
+                      ? '收入减支出的直接结果，适合判断当前利润空间是否还充足。'
+                      : '当前范围内暂无收入基线，净流差更偏向支出压力提醒。'
+                  }}
+                </p>
+              </article>
+
+              <article
+                class="signal-card signal-card--finance-delta ds-card"
+                :class="financeComparisonTone === 'income' ? 'is-positive' : financeComparisonTone === 'expense' ? 'is-alert' : ''"
+              >
+                <span class="signal-label">利润较上一周期变化</span>
+                <strong
+                  class="signal-value"
+                  :class="financeComparisonTone === 'income' ? 'income' : financeComparisonTone === 'expense' ? 'expense' : ''"
+                >
+                  {{ financeState.data.periodComparison ? formatSignedCurrency(financeProfitChange) : '—' }}
+                </strong>
+                <p>{{ financeComparisonHeadline }}</p>
+              </article>
+            </section>
+
+            <!-- 中区：全宽趋势大图 -->
+            <article class="panel-card ds-card panel-card--full panel-card--wide panel-card--finance-trend dashboard-spacer">
+              <div class="panel-header">
+                <div>
+                  <h3>月度收入、支出与利润趋势</h3>
+                  <p>第二层看经营压力是短期波动，还是已经沿着时间线持续抬升。</p>
+                </div>
+              </div>
+              <div
+                v-if="financeState.data.monthlyTrend.length"
+                ref="financeTrendChartRef"
+                class="chart-box chart-box--flagship chart-box--trend-secondary"
+              />
+              <div v-else class="panel-empty panel-empty--compact">
+                <h4>暂无月度趋势</h4>
+                <p>当前范围内还没有形成可读的收入、支出与利润序列。</p>
+              </div>
+            </article>
+
+            <!-- 底部：双列对称并排 -->
+            <section class="dashboard-secondary-grid">
+              <article class="panel-card ds-card panel-card--secondary">
                 <div class="panel-header panel-header--feature">
                   <div>
-                    <span class="panel-kicker">旗舰主图</span>
                     <h3>收入集中度</h3>
                     <p>{{ financeConcentrationHeadline }}</p>
                   </div>
@@ -1593,87 +1697,14 @@ function toNumber(value: number | string | undefined | null) {
                     <strong>{{ financeSourceCount > 0 ? formatRatio(financeTop1Share) : '—' }}</strong>
                   </div>
                 </div>
-
                 <div
                   v-if="financeState.data.topIncomeSources.length"
                   ref="financeIncomeChartRef"
-                  class="chart-box chart-box--flagship chart-box--pareto"
+                  class="chart-box chart-box--secondary chart-box--pareto"
                 />
                 <div v-else class="panel-empty">
                   <h4>暂无收入集中度图</h4>
                   <p>当前范围内还没有形成可用于判断依赖度的收入来源。</p>
-                </div>
-              </article>
-
-              <aside class="feature-sidebar feature-sidebar--finance">
-                <section class="signal-grid signal-grid--finance">
-                  <article class="signal-card signal-card--finance-structure ds-card">
-                    <span class="signal-label">Top3 收入占比</span>
-                    <strong class="signal-value">{{ financeSourceCount > 0 ? formatRatio(financeTop3Share) : '—' }}</strong>
-                    <p>
-                      {{
-                        financeSourceCount > 0
-                          ? `${formatCount(financeSourceCount)} 个来源里，前三大来源贡献了主要现金入口。`
-                          : '等待收入来源形成后，再判断集中风险。'
-                      }}
-                    </p>
-                  </article>
-
-                  <article class="signal-card signal-card--finance-pressure ds-card" :class="financeCoverageRatio >= 0.7 ? 'is-alert' : ''">
-                    <span class="signal-label">成本吞噬率</span>
-                    <strong class="signal-value" :class="financeCoverageRatio >= 0.7 ? 'expense' : ''">
-                      {{ toNumber(financeState.data.totalIncome) > 0 ? formatRatio(financeCoverageRatio) : '—' }}
-                    </strong>
-                    <p>{{ financeCoverageHeadline }}</p>
-                  </article>
-
-                  <article class="signal-card signal-card--finance-balance ds-card" :class="financeNetSpread < 0 ? 'is-alert' : 'is-positive'">
-                    <span class="signal-label">净流差</span>
-                    <strong class="signal-value" :class="financeNetSpread >= 0 ? 'income' : 'expense'">
-                      {{ formatSignedCurrency(financeNetSpread) }}
-                    </strong>
-                    <p>
-                      {{
-                        toNumber(financeState.data.totalIncome) > 0
-                          ? '收入减支出的直接结果，适合判断当前利润空间是否还充足。'
-                          : '当前范围内暂无收入基线，净流差更偏向支出压力提醒。'
-                      }}
-                    </p>
-                  </article>
-
-                  <article
-                    class="signal-card signal-card--finance-delta ds-card"
-                    :class="financeComparisonTone === 'income' ? 'is-positive' : financeComparisonTone === 'expense' ? 'is-alert' : ''"
-                  >
-                    <span class="signal-label">利润较上一周期变化</span>
-                    <strong
-                      class="signal-value"
-                      :class="financeComparisonTone === 'income' ? 'income' : financeComparisonTone === 'expense' ? 'expense' : ''"
-                    >
-                      {{ financeState.data.periodComparison ? formatSignedCurrency(financeProfitChange) : '—' }}
-                    </strong>
-                    <p>{{ financeComparisonHeadline }}</p>
-                  </article>
-                </section>
-              </aside>
-            </section>
-
-            <section class="finance-secondary-grid">
-              <article class="panel-card ds-card panel-card--secondary panel-card--wide panel-card--finance-trend">
-                <div class="panel-header">
-                  <div>
-                    <h3>月度收入、支出与利润趋势</h3>
-                    <p>第二层看经营压力是短期波动，还是已经沿着时间线持续抬升。</p>
-                  </div>
-                </div>
-                <div
-                  v-if="financeState.data.monthlyTrend.length"
-                  ref="financeTrendChartRef"
-                  class="chart-box chart-box--secondary chart-box--trend-secondary"
-                />
-                <div v-else class="panel-empty panel-empty--compact">
-                  <h4>暂无月度趋势</h4>
-                  <p>当前范围内还没有形成可读的收入、支出与利润序列。</p>
                 </div>
               </article>
 
@@ -1732,13 +1763,46 @@ function toNumber(value: number | string | undefined | null) {
           </div>
 
           <template v-else-if="hrState.data">
-            <section class="feature-layout feature-layout--hr">
-              <article class="feature-primary ds-card feature-primary--hr">
+            <!-- 顶区：4 KPI卡片 -->
+            <section class="signal-grid-top">
+              <article class="signal-card ds-card signal-card--hr-size">
+                <span class="signal-label">当前在职人数</span>
+                <strong class="signal-value">{{ formatCount(hrState.data.activeEmployeeCount) }} 人</strong>
+                <p>按当前 `status=1` 的员工记录统计。</p>
+              </article>
+
+              <article class="signal-card ds-card signal-card--hr-cost">
+                <span class="signal-label">当前基础薪资总额</span>
+                <strong class="signal-value income">{{ formatCurrency(hrState.data.activeSalaryTotal) }}</strong>
+                <p>用于观察固定人力成本的当前压力。</p>
+              </article>
+
+              <article class="signal-card ds-card signal-card--hr-average">
+                <span class="signal-label">人均基础薪资</span>
+                <strong class="signal-value">{{ formatCurrency(hrAverageSalary) }}</strong>
+                <p>帮助判断当前团队的人力单价是否已经抬高。</p>
+              </article>
+
+              <article class="signal-card ds-card signal-card--hr-focus">
+                <span class="signal-label">最高负担部门</span>
+                <strong class="signal-value">{{ hrTopDepartment ? formatRatio(hrTopDepartment.ratio) : '—' }}</strong>
+                <p>
+                  {{
+                    hrTopDepartment
+                      ? `${hrTopDepartment.department} 当前承担最多基础薪资负担。`
+                      : '等待部门结构形成后再判断负担重心。'
+                  }}
+                </p>
+              </article>
+            </section>
+
+            <!-- 底部：双列对照 -->
+            <section class="dashboard-secondary-grid">
+              <article class="panel-card ds-card panel-card--secondary">
                 <div class="panel-header panel-header--feature">
                   <div>
-                    <span class="panel-kicker">旗舰主图</span>
                     <h3>部门薪资负担排序</h3>
-                    <p>先看当前基础薪资主要压在哪些部门，再判断人力成本是否过度集中。</p>
+                    <p>先看当前基础薪资主要压在哪些部门，再判断人力成本是否集中。</p>
                   </div>
                   <div class="panel-metric">
                     <span>覆盖部门数</span>
@@ -1749,9 +1813,9 @@ function toNumber(value: number | string | undefined | null) {
                 <div
                   v-if="hrState.data.departmentSalaryShare.length"
                   ref="hrDepartmentChartRef"
-                  class="chart-box chart-box--flagship chart-box--hr-burden"
+                  class="chart-box chart-box--secondary chart-box--hr-burden"
                 />
-                <div v-else class="panel-empty">
+                <div v-else class="panel-empty panel-empty--compact">
                   <h4>暂无团队结构</h4>
                   <p>当前没有可用于聚合的在职员工。</p>
                 </div>
@@ -1762,58 +1826,24 @@ function toNumber(value: number | string | undefined | null) {
                 </p>
               </article>
 
-              <aside class="feature-sidebar feature-sidebar--hr">
-                <section class="signal-grid signal-grid--hr">
-                  <article class="signal-card ds-card signal-card--hr-size">
-                    <span class="signal-label">当前在职人数</span>
-                    <strong class="signal-value">{{ formatCount(hrState.data.activeEmployeeCount) }} 人</strong>
-                    <p>按当前 `status=1` 的员工记录统计。</p>
-                  </article>
-
-                  <article class="signal-card ds-card signal-card--hr-cost">
-                    <span class="signal-label">当前基础薪资总额</span>
-                    <strong class="signal-value income">{{ formatCurrency(hrState.data.activeSalaryTotal) }}</strong>
-                    <p>用于观察固定人力成本的当前压力。</p>
-                  </article>
-
-                  <article class="signal-card ds-card signal-card--hr-average">
-                    <span class="signal-label">人均基础薪资</span>
-                    <strong class="signal-value">{{ formatCurrency(hrAverageSalary) }}</strong>
-                    <p>帮助判断当前团队的人力单价是否已经抬高。</p>
-                  </article>
-
-                  <article class="signal-card ds-card signal-card--hr-focus">
-                    <span class="signal-label">最高负担部门</span>
-                    <strong class="signal-value">{{ hrTopDepartment ? formatRatio(hrTopDepartment.ratio) : '—' }}</strong>
-                    <p>
-                      {{
-                        hrTopDepartment
-                          ? `${hrTopDepartment.department} 当前承担最多基础薪资负担。`
-                          : '等待部门结构形成后再判断负担重心。'
-                      }}
-                    </p>
-                  </article>
-                </section>
-              </aside>
-            </section>
-
-            <article class="panel-card ds-card panel-card--full panel-card--wide panel-card--hr-balance">
-              <div class="panel-header">
-                <div>
-                  <h3>部门人数与人均基础薪资</h3>
-                  <p>把部门体量和人均单价放在一起看，区分到底是人数更大，还是岗位单价更高。</p>
+              <article class="panel-card ds-card panel-card--secondary panel-card--hr-balance">
+                <div class="panel-header">
+                  <div>
+                    <h3>部门人数与均薪对比</h3>
+                    <p>把体量和单价放在一起看，到底是人数更大，还是单价更高。</p>
+                  </div>
                 </div>
-              </div>
-              <div
-                v-if="hrState.data.departmentSalaryShare.length"
-                ref="hrTrendChartRef"
-                class="chart-box chart-box--secondary chart-box--hr-balance"
-              />
-              <div v-else class="panel-empty panel-empty--compact">
-                <h4>暂无部门对比</h4>
-                <p>当前没有足够的部门数据可用于比较人数和人均薪资。</p>
-              </div>
-            </article>
+                <div
+                  v-if="hrState.data.departmentSalaryShare.length"
+                  ref="hrTrendChartRef"
+                  class="chart-box chart-box--secondary chart-box--hr-balance"
+                />
+                <div v-else class="panel-empty panel-empty--compact">
+                  <h4>暂无部门对比</h4>
+                  <p>当前没有足够的部门数据可用于比较人数和人均薪资。</p>
+                </div>
+              </article>
+            </section>
           </template>
         </section>
       </el-tab-pane>
@@ -1865,14 +1895,59 @@ function toNumber(value: number | string | undefined | null) {
           </div>
 
           <template v-else-if="taxState.data">
-            <section class="feature-layout feature-layout--tax">
-              <article class="feature-primary ds-card feature-primary--tax">
+            <!-- 顶区：4 KPI卡片 -->
+            <section class="signal-grid-top">
+              <article class="signal-card signal-card--tax-rate ds-card">
+                <span class="signal-label">当前税负率</span>
+                <strong class="signal-value" :class="taxBurdenTone === 'danger' ? 'expense' : taxBurdenTone === 'healthy' ? 'income' : ''">
+                  {{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}
+                </strong>
+                <p>{{ taxComparisonLabel }}</p>
+              </article>
+
+              <article class="signal-card signal-card--tax-overdue ds-card" :class="{ 'is-alert': taxUnpaidRatio > 0 }">
+                <span class="signal-label">待缴情形占比</span>
+                <strong class="signal-value" :class="taxUnpaidRatio > 0 ? 'expense' : ''">
+                  {{ toNumber(taxState.data.positiveTaxAmount) > 0 ? formatRatio(taxUnpaidRatio) : '0.0%' }}
+                </strong>
+                <p>
+                  {{
+                    toNumber(taxState.data.positiveTaxAmount) > 0
+                      ? `待缴正向税额 ${formatCurrency(taxState.data.unpaidTaxAmount)}`
+                      : '当前范围内暂无正向税额基线'
+                  }}
+                </p>
+              </article>
+
+              <article class="signal-card signal-card--tax-records ds-card" :class="{ 'is-alert': taxUnpaidRecordRatio > 0 }">
+                <span class="signal-label">待缴情形记录占比</span>
+                <strong class="signal-value" :class="taxUnpaidRecordRatio > 0 ? 'expense' : ''">
+                  {{ taxStatusTotalCount > 0 ? formatRatio(taxUnpaidRecordRatio) : '0.0%' }}
+                </strong>
+                <p>
+                  {{ taxStatusTotalCount > 0 ? `共 ${formatCount(taxStatusTotalCount)} 笔税务记录` : '当前范围内暂无状态记录' }}
+                </p>
+              </article>
+
+              <article class="signal-card signal-card--tax-focus ds-card">
+                <span class="signal-label">第一大税种占比</span>
+                <strong class="signal-value" :class="taxTopTaxTypeShare >= 0.5 ? 'expense' : ''">
+                  {{ taxTopTaxType ? formatRatio(taxTopTaxTypeShare) : '—' }}
+                </strong>
+                <p>{{ taxTopTaxType ? `当前压力主要来自 ${taxTopTaxType.taxType}` : '当前范围内暂无税种结构' }}</p>
+              </article>
+            </section>
+
+            <!-- 中间：主结构与状态合围 -->
+            <section class="dashboard-secondary-grid" style="grid-template-columns: minmax(0, 1fr) minmax(320px, 1.25fr);">
+              <!-- 左侧大卡：综合税负率 -->
+              <article class="panel-card ds-card panel-card--secondary feature-primary--tax" style="display: flex; flex-direction: column;">
                 <div class="panel-header panel-header--feature">
                   <div>
                     <span class="panel-kicker">旗舰主图</span>
                     <h3>综合税负率</h3>
                     <p>
-                      用正向税额对正向收入基线，先判断税负强度是否已经压住经营弹性。
+                      用正向税额对正向收入基线，判断税负强度。
                     </p>
                   </div>
                   <div class="panel-metric-stack">
@@ -1880,64 +1955,45 @@ function toNumber(value: number | string | undefined | null) {
                       <span>当前税负率</span>
                       <strong>{{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}</strong>
                     </div>
-                    <span class="delta-pill" :class="`is-${taxComparisonTone}`">
-                      {{ taxComparisonLabel }}
-                    </span>
                   </div>
                 </div>
-                <div ref="taxGaugeChartRef" class="chart-box chart-box--flagship chart-box--gauge chart-box--tax-gauge" />
+                <!-- 注入 flex-grow 以拉伸吸收右边可能造成的高落差 -->
+                <div ref="taxGaugeChartRef" class="chart-box chart-box--secondary chart-box--gauge chart-box--tax-gauge" style="flex-grow: 1; min-height: 240px;" />
                 <div class="gauge-notes gauge-notes--tax">
                   <div class="note-chip tone-healthy">0%-10%</div>
                   <div class="note-chip tone-warning">10%-20%</div>
                   <div class="note-chip tone-danger">20%+</div>
                 </div>
                 <p class="gauge-disclaimer">10% / 20% 为内部观察线，仅用于经营观察，不代表税务合规判定。</p>
-                <p class="feature-caption feature-caption--tax">{{ taxRiskHeadline }}</p>
+                <p class="feature-caption feature-caption--tax" style="margin-top: 12px;">{{ taxRiskHeadline }}</p>
               </article>
 
-              <aside class="feature-sidebar feature-sidebar--tax">
-                <section class="signal-grid signal-grid--tax">
-                  <article class="signal-card signal-card--tax-rate ds-card">
-                    <span class="signal-label">当前税负率</span>
-                    <strong class="signal-value" :class="taxBurdenTone === 'danger' ? 'expense' : taxBurdenTone === 'healthy' ? 'income' : ''">
-                      {{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}
-                    </strong>
-                    <p>{{ taxComparisonLabel }}</p>
-                  </article>
+              <!-- 右侧组合：税种结构 + 缴纳状态 -->
+              <div class="tax-right-column" style="display: flex; flex-direction: column; gap: 16px;">
+                <!-- 右上：税种结构 -->
+                <article class="panel-card ds-card panel-card--secondary panel-card--tax-structure" style="flex: 1;">
+                  <div class="panel-header">
+                    <div>
+                      <h3>税种结构排序</h3>
+                      <p>确认压力主要来自哪里，退税暂不入结构统算。</p>
+                    </div>
+                    <div class="panel-metric panel-metric--tax-structure" :class="taxTopTaxType ? 'is-warning' : ''">
+                      <span>{{ taxTopTaxType ? taxTopTaxType.taxType : '暂无结构' }}</span>
+                      <strong>{{ taxTopTaxType ? formatRatio(taxTopTaxTypeShare) : '—' }}</strong>
+                    </div>
+                  </div>
+                  <div
+                    v-if="taxState.data.taxTypeStructure.length"
+                    ref="taxTypeChartRef"
+                    class="chart-box chart-box--secondary chart-box--tax-structure"
+                  />
+                  <div v-else class="panel-empty panel-empty--compact">
+                    <h4>暂无税种结构</h4>
+                    <p>当前范围内没有正向税额。</p>
+                  </div>
+                </article>
 
-                  <article class="signal-card signal-card--tax-overdue ds-card" :class="{ 'is-alert': taxUnpaidRatio > 0 }">
-                    <span class="signal-label">待缴情形占比</span>
-                    <strong class="signal-value" :class="taxUnpaidRatio > 0 ? 'expense' : ''">
-                      {{ toNumber(taxState.data.positiveTaxAmount) > 0 ? formatRatio(taxUnpaidRatio) : '0.0%' }}
-                    </strong>
-                    <p>
-                      {{
-                        toNumber(taxState.data.positiveTaxAmount) > 0
-                          ? `待缴正向税额 ${formatCurrency(taxState.data.unpaidTaxAmount)}`
-                          : '当前范围内暂无正向税额基线'
-                      }}
-                    </p>
-                  </article>
-
-                  <article class="signal-card signal-card--tax-records ds-card" :class="{ 'is-alert': taxUnpaidRecordRatio > 0 }">
-                    <span class="signal-label">待缴情形记录占比</span>
-                    <strong class="signal-value" :class="taxUnpaidRecordRatio > 0 ? 'expense' : ''">
-                      {{ taxStatusTotalCount > 0 ? formatRatio(taxUnpaidRecordRatio) : '0.0%' }}
-                    </strong>
-                    <p>
-                      {{ taxStatusTotalCount > 0 ? `共 ${formatCount(taxStatusTotalCount)} 笔税务记录` : '当前范围内暂无状态记录' }}
-                    </p>
-                  </article>
-
-                  <article class="signal-card signal-card--tax-focus ds-card">
-                    <span class="signal-label">第一大税种占比</span>
-                    <strong class="signal-value" :class="taxTopTaxTypeShare >= 0.5 ? 'expense' : ''">
-                      {{ taxTopTaxType ? formatRatio(taxTopTaxTypeShare) : '—' }}
-                    </strong>
-                    <p>{{ taxTopTaxType ? `当前压力主要来自 ${taxTopTaxType.taxType}` : '当前范围内暂无税种结构' }}</p>
-                  </article>
-                </section>
-
+                <!-- 右下：缴情状态组成 -->
                 <section class="status-overview ds-card">
                   <div class="panel-header">
                     <div>
@@ -1974,51 +2030,8 @@ function toNumber(value: number | string | undefined | null) {
                   </div>
                   <div v-else class="outstanding-empty">当前范围内暂无缴纳状态记录。</div>
                 </section>
-
-                <section class="outstanding-card ds-card">
-                  <div class="panel-header">
-                    <div>
-                      <h3>最近待缴事项</h3>
-                      <p>把最新待缴情形单独拉出来，适合安排本周处理顺序。</p>
-                    </div>
-                    <span class="status-overview__count">{{ formatCount(taxOutstandingItems.length) }} 条</span>
-                  </div>
-
-                  <ul v-if="taxOutstandingItems.length" class="outstanding-list">
-                    <li v-for="item in taxOutstandingItems" :key="`${item.taxPeriod}-${item.taxType}`" class="outstanding-item">
-                      <div class="outstanding-copy">
-                        <span class="outstanding-period">{{ item.taxPeriod }}</span>
-                        <strong class="outstanding-title">{{ item.taxType }}</strong>
-                      </div>
-                      <span class="outstanding-amount">{{ formatCurrency(item.amount) }}</span>
-                    </li>
-                  </ul>
-                  <div v-else class="outstanding-empty">当前范围内没有待缴情形。</div>
-                </section>
-              </aside>
+              </div>
             </section>
-
-            <article class="panel-card ds-card panel-card--full panel-card--tax-structure">
-              <div class="panel-header">
-                <div>
-                  <h3>税种结构排序</h3>
-                  <p>确认压力主要来自哪里，负数退税不进入结构分布，但仍保留在状态汇总里。</p>
-                </div>
-                <div class="panel-metric panel-metric--tax-structure" :class="taxTopTaxType ? 'is-warning' : ''">
-                  <span>{{ taxTopTaxType ? taxTopTaxType.taxType : '暂无结构' }}</span>
-                  <strong>{{ taxTopTaxType ? formatRatio(taxTopTaxTypeShare) : '—' }}</strong>
-                </div>
-              </div>
-              <div
-                v-if="taxState.data.taxTypeStructure.length"
-                ref="taxTypeChartRef"
-                class="chart-box chart-box--secondary chart-box--tax-structure"
-              />
-              <div v-else class="panel-empty panel-empty--compact">
-                <h4>暂无税种结构</h4>
-                <p>当前范围内没有正向税额。</p>
-              </div>
-            </article>
           </template>
         </section>
       </el-tab-pane>
@@ -2162,6 +2175,22 @@ function toNumber(value: number | string | undefined | null) {
                 <span class="summary-label">待缴税额</span>
                 <strong class="summary-value expense">{{ formatCurrency(taxState.data.unpaidTaxAmount) }}</strong>
                 <p>当前范围内待缴且税额为正的风险金额。</p>
+              </article>
+
+              <article class="summary-card ds-card">
+                <span class="summary-label">当前税负率</span>
+                <strong class="summary-value" :class="taxBurdenTone === 'danger' ? 'expense' : taxBurdenTone === 'healthy' ? 'income' : ''">
+                  {{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}
+                </strong>
+                <p>判断当前税负强度是否已经产生经营压力。</p>
+              </article>
+
+              <article class="summary-card ds-card">
+                <span class="summary-label">待缴情形占比</span>
+                <strong class="summary-value" :class="taxUnpaidRatio > 0 ? 'expense' : ''">
+                  {{ toNumber(taxState.data.positiveTaxAmount) > 0 ? formatRatio(taxUnpaidRatio) : '0.0%' }}
+                </strong>
+                <p>待缴税额占产生正向税额的比例，确认风险影响面。</p>
               </article>
             </section>
 
@@ -2506,7 +2535,7 @@ function toNumber(value: number | string | undefined | null) {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.88fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .feature-layout--finance-diagnostic {
@@ -2596,6 +2625,7 @@ function toNumber(value: number | string | undefined | null) {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: 16px;
 }
 
@@ -2611,6 +2641,8 @@ function toNumber(value: number | string | undefined | null) {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  flex-grow: 1;
+  align-content: stretch;
 }
 
 .signal-grid--finance {
@@ -2627,11 +2659,37 @@ function toNumber(value: number | string | undefined | null) {
   gap: 16px;
 }
 
+.signal-grid-top {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 1200px) {
+  .signal-grid-top {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.dashboard-secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.dashboard-spacer {
+  margin-bottom: 18px;
+}
+
 .signal-card {
   position: relative;
-  padding: 18px 18px 16px;
+  padding: 16px 18px 16px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 245, 244, 0.92));
-  min-height: 170px;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   transition:
     transform 0.18s ease,
     box-shadow 0.18s ease,
@@ -3069,6 +3127,94 @@ function toNumber(value: number | string | undefined | null) {
   transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.92), transparent);
   animation: shimmer 1.5s ease infinite;
+}
+
+.status-overview {
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.status-overview__count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #a39e98;
+}
+
+.status-composition {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.status-composition__track {
+  height: 8px;
+  display: flex;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: #f6f5f4;
+}
+
+.status-composition__segment {
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+.status-composition__segment.is-unpaid { background-color: #dd5b00; }
+.status-composition__segment.is-paid { background-color: #a39e98; }
+.status-composition__segment.is-exempt { background-color: #1aae39; }
+
+.status-composition__legend {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.is-unpaid { background-color: #dd5b00; }
+.status-dot.is-paid { background-color: #a39e98; }
+.status-dot.is-exempt { background-color: #1aae39; }
+
+.status-legend-copy {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #615d59;
+}
+
+.status-legend-copy strong {
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.92);
+}
+
+.status-legend-ratio {
+  font-size: 13px;
+  font-weight: 600;
+  color: #8892a5;
+  font-variant-numeric: tabular-nums;
+  width: 48px;
+  text-align: right;
+}
+
+.outstanding-empty {
+  padding: 16px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #a39e98;
 }
 
 .status-stack,
