@@ -62,8 +62,9 @@ public class DashboardServiceImpl implements DashboardService {
     private static final int HOME_TREND_MONTH_COUNT = 6;
     private static final Duration HOME_AI_SUMMARY_CACHE_TTL = Duration.ofMinutes(10);
     private static final Set<String> FINANCE_AND_HR_RANGES = Set.of("last3months", "last6months", "last12months", "all");
-    private static final Set<String> TAX_RANGES = Set.of("thisYear", "last12months", "all");
+    private static final Set<String> TAX_LEGACY_RANGES = Set.of("thisYear", "last12months", "all");
     private static final DateTimeFormatter MONTH_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM");
+    private static final Pattern YEAR_RANGE_PATTERN = Pattern.compile("^(\\d{4})$");
     private static final Pattern MONTH_PERIOD_PATTERN = Pattern.compile("^(\\d{4})-(0[1-9]|1[0-2])$");
     private static final Pattern QUARTER_PERIOD_PATTERN = Pattern.compile("^(\\d{4})-Q([1-4])$");
     private static final Pattern ANNUAL_PERIOD_PATTERN = Pattern.compile("^(\\d{4})-Annual$");
@@ -138,7 +139,7 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     public FinanceDashboardVO getFinanceDashboard(String range) {
         String normalizedRange = normalizeRange(range);
-        DateRange dateRange = resolveFinanceOrHrRange(normalizedRange);
+        DateRange dateRange = resolveFinanceRange(normalizedRange);
         List<FinanceRecord> records = queryFinanceRecords(dateRange);
         FinanceAggregation aggregation = aggregateFinanceRecords(records);
 
@@ -203,9 +204,12 @@ public class DashboardServiceImpl implements DashboardService {
     public TaxDashboardVO getTaxDashboard(String range) {
         String normalizedRange = normalizeRange(range);
         Long companyId = currentSessionService.requireCurrentCompanyId();
-        DateRange financeRange = resolveTaxFinanceRange(normalizedRange);
-        DateRange taxRange = resolveTaxPeriodRange(normalizedRange);
-        List<TaxRecord> records = queryTaxRecords(companyId).stream()
+        List<TaxRecord> allRecords = queryTaxRecords(companyId);
+        List<Integer> availableYears = resolveAvailableTaxYears(allRecords);
+        Integer selectedYear = resolveSelectedTaxYear(normalizedRange, availableYears);
+        DateRange financeRange = resolveTaxFinanceRange(normalizedRange, selectedYear);
+        DateRange taxRange = resolveTaxPeriodRange(normalizedRange, selectedYear);
+        List<TaxRecord> records = allRecords.stream()
                 .filter(record -> isTaxRecordWithinRange(record, taxRange))
                 .toList();
 
@@ -242,6 +246,8 @@ public class DashboardServiceImpl implements DashboardService {
         result.setIncomeBase(incomeBase);
         result.setUnpaidTaxAmount(unpaidTaxAmount);
         result.setTaxBurdenRate(taxBurdenRate);
+        result.setAvailableYears(availableYears);
+        result.setSelectedYear(selectedYear);
         BigDecimal finalPositiveTaxAmount = positiveTaxAmount;
         result.setTaxTypeStructure(taxTypeMap.entrySet().stream()
                 .sorted(Map.Entry.<String, BigDecimal>comparingByValue().reversed().thenComparing(Map.Entry::getKey))
@@ -254,7 +260,8 @@ public class DashboardServiceImpl implements DashboardService {
         result.setPeriodComparison(buildTaxPeriodComparison(
                 normalizedRange,
                 companyId,
-                new TaxComparisonSnapshot(positiveTaxAmount, unpaidTaxAmount, taxBurdenRate)
+                new TaxComparisonSnapshot(positiveTaxAmount, unpaidTaxAmount, taxBurdenRate),
+                selectedYear
         ));
         result.setRecentOutstanding(buildRecentOutstanding(records));
         return result;
@@ -507,17 +514,21 @@ public class DashboardServiceImpl implements DashboardService {
 
     private TaxDashboardVO.PeriodComparison buildTaxPeriodComparison(String normalizedRange,
                                                                      Long companyId,
-                                                                     TaxComparisonSnapshot currentSnapshot) {
+                                                                     TaxComparisonSnapshot currentSnapshot,
+                                                                     Integer selectedYear) {
         if ("all".equals(normalizedRange)) {
             return null;
         }
+        if (!StringUtils.hasText(normalizedRange) && selectedYear == null) {
+            return null;
+        }
 
-        DateRange previousFinanceRange = resolvePreviousTaxFinanceRange(normalizedRange);
-        DateRange previousTaxRange = resolvePreviousTaxPeriodRange(normalizedRange);
+        DateRange previousFinanceRange = resolvePreviousTaxFinanceRange(normalizedRange, selectedYear);
+        DateRange previousTaxRange = resolvePreviousTaxPeriodRange(normalizedRange, selectedYear);
         TaxComparisonSnapshot previousSnapshot = buildTaxComparisonSnapshot(previousTaxRange, previousFinanceRange, companyId);
 
         TaxDashboardVO.PeriodComparison comparison = new TaxDashboardVO.PeriodComparison();
-        comparison.setBaselineLabel(resolveTaxBaselineLabel(normalizedRange));
+        comparison.setBaselineLabel(resolveTaxBaselineLabel(normalizedRange, selectedYear));
         comparison.setPreviousTaxBurdenRate(previousSnapshot.taxBurdenRate());
         comparison.setBurdenRateDelta(currentSnapshot.taxBurdenRate().subtract(previousSnapshot.taxBurdenRate()));
         comparison.setPreviousUnpaidTaxAmount(previousSnapshot.unpaidTaxAmount());
@@ -977,11 +988,11 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     private DateRange resolvePreviousFinanceRange(String range) {
-        YearMonth currentMonth = YearMonth.from(LocalDate.now(clock));
+        YearMonth lastClosedMonth = YearMonth.from(LocalDate.now(clock)).minusMonths(1);
         return switch (range) {
-            case "last3months" -> new DateRange(currentMonth.minusMonths(5).atDay(1), currentMonth.minusMonths(3).atEndOfMonth());
-            case "last6months" -> new DateRange(currentMonth.minusMonths(11).atDay(1), currentMonth.minusMonths(6).atEndOfMonth());
-            case "last12months" -> new DateRange(currentMonth.minusMonths(23).atDay(1), currentMonth.minusMonths(12).atEndOfMonth());
+            case "last3months" -> new DateRange(lastClosedMonth.minusMonths(5).atDay(1), lastClosedMonth.minusMonths(3).atEndOfMonth());
+            case "last6months" -> new DateRange(lastClosedMonth.minusMonths(11).atDay(1), lastClosedMonth.minusMonths(6).atEndOfMonth());
+            case "last12months" -> new DateRange(lastClosedMonth.minusMonths(23).atDay(1), lastClosedMonth.minusMonths(12).atEndOfMonth());
             default -> throw new BusinessException("不支持的统计范围");
         };
     }
@@ -995,7 +1006,55 @@ public class DashboardServiceImpl implements DashboardService {
         };
     }
 
-    private DateRange resolvePreviousTaxFinanceRange(String range) {
+    private List<Integer> resolveAvailableTaxYears(List<TaxRecord> records) {
+        return records.stream()
+                .map(TaxRecord::getTaxPeriod)
+                .map(this::extractTaxPeriodYear)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted(Comparator.reverseOrder())
+                .toList();
+    }
+
+    private Integer resolveSelectedTaxYear(String range, List<Integer> availableYears) {
+        Integer requestedYear = parseTaxRangeYear(range);
+        if (requestedYear != null) {
+            if (availableYears.isEmpty() || availableYears.contains(requestedYear)) {
+                return requestedYear;
+            }
+            return availableYears.get(0);
+        }
+
+        String normalized = normalizeRange(range);
+        if (!StringUtils.hasText(normalized)) {
+            return availableYears.isEmpty() ? null : availableYears.get(0);
+        }
+        if (TAX_LEGACY_RANGES.contains(normalized)) {
+            return null;
+        }
+        throw new BusinessException("不支持的税务统计范围");
+    }
+
+    private Integer parseTaxRangeYear(String range) {
+        Matcher yearMatcher = YEAR_RANGE_PATTERN.matcher(normalizeRange(range));
+        if (!yearMatcher.matches()) {
+            return null;
+        }
+        return Integer.parseInt(yearMatcher.group(1));
+    }
+
+    private Integer extractTaxPeriodYear(String taxPeriod) {
+        LocalDate periodDate = resolveTaxPeriodSortDate(taxPeriod);
+        return LocalDate.MIN.equals(periodDate) ? null : periodDate.getYear();
+    }
+
+    private DateRange resolvePreviousTaxFinanceRange(String range, Integer selectedYear) {
+        if (selectedYear != null) {
+            return new DateRange(
+                    LocalDate.of(selectedYear - 1, 1, 1),
+                    LocalDate.of(selectedYear - 1, 12, 31)
+            );
+        }
         YearMonth currentMonth = YearMonth.from(LocalDate.now(clock));
         return switch (range) {
             case "thisYear" -> new DateRange(
@@ -1010,11 +1069,14 @@ public class DashboardServiceImpl implements DashboardService {
         };
     }
 
-    private DateRange resolvePreviousTaxPeriodRange(String range) {
-        return resolvePreviousTaxFinanceRange(range);
+    private DateRange resolvePreviousTaxPeriodRange(String range, Integer selectedYear) {
+        return resolvePreviousTaxFinanceRange(range, selectedYear);
     }
 
-    private String resolveTaxBaselineLabel(String range) {
+    private String resolveTaxBaselineLabel(String range, Integer selectedYear) {
+        if (selectedYear != null) {
+            return "较" + (selectedYear - 1) + "年度";
+        }
         return switch (range) {
             case "thisYear" -> "较去年同期";
             case "last12months" -> "较前12个月";
@@ -1047,6 +1109,22 @@ public class DashboardServiceImpl implements DashboardService {
         }
 
         return LocalDate.MIN;
+    }
+
+    private DateRange resolveFinanceRange(String range) {
+        String normalized = normalizeRange(range);
+        if (!FINANCE_AND_HR_RANGES.contains(normalized)) {
+            throw new BusinessException("不支持的统计范围");
+        }
+
+        YearMonth lastClosedMonth = YearMonth.from(LocalDate.now(clock)).minusMonths(1);
+        return switch (normalized) {
+            case "last3months" -> new DateRange(lastClosedMonth.minusMonths(2).atDay(1), lastClosedMonth.atEndOfMonth());
+            case "last6months" -> new DateRange(lastClosedMonth.minusMonths(5).atDay(1), lastClosedMonth.atEndOfMonth());
+            case "last12months" -> new DateRange(lastClosedMonth.minusMonths(11).atDay(1), lastClosedMonth.atEndOfMonth());
+            case "all" -> new DateRange(null, null);
+            default -> throw new BusinessException("不支持的统计范围");
+        };
     }
 
     private DateRange resolveFinanceOrHrRange(String range) {
@@ -1089,9 +1167,19 @@ public class DashboardServiceImpl implements DashboardService {
         return new MonthRange(YearMonth.from(earliestHireDate), currentMonth);
     }
 
-    private DateRange resolveTaxFinanceRange(String range) {
+    private DateRange resolveTaxFinanceRange(String range, Integer selectedYear) {
+        if (selectedYear != null) {
+            return new DateRange(
+                    LocalDate.of(selectedYear, 1, 1),
+                    LocalDate.of(selectedYear, 12, 31)
+            );
+        }
+
         String normalized = normalizeRange(range);
-        if (!TAX_RANGES.contains(normalized)) {
+        if (!StringUtils.hasText(normalized)) {
+            return new DateRange(null, null);
+        }
+        if (!TAX_LEGACY_RANGES.contains(normalized)) {
             throw new BusinessException("不支持的税务统计范围");
         }
 
@@ -1104,8 +1192,8 @@ public class DashboardServiceImpl implements DashboardService {
         };
     }
 
-    private DateRange resolveTaxPeriodRange(String range) {
-        return resolveTaxFinanceRange(range);
+    private DateRange resolveTaxPeriodRange(String range, Integer selectedYear) {
+        return resolveTaxFinanceRange(range, selectedYear);
     }
 
     private boolean isTaxRecordWithinRange(TaxRecord record, DateRange dateRange) {

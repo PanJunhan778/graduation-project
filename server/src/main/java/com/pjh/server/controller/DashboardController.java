@@ -48,7 +48,7 @@ public class DashboardController {
 
     @GetMapping("/tax")
     public Result<TaxDashboardVO> getTaxDashboard(
-            @RequestParam(defaultValue = "thisYear") String range
+            @RequestParam(required = false) String range
     ) {
         return Result.success(dashboardService.getTaxDashboard(range));
     }

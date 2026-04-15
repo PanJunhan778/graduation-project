@@ -12,6 +12,8 @@ public class TaxDashboardVO {
     private BigDecimal positiveTaxAmount;
     private BigDecimal incomeBase;
     private BigDecimal unpaidTaxAmount;
+    private List<Integer> availableYears;
+    private Integer selectedYear;
     private List<TaxTypeStructureItem> taxTypeStructure;
     private List<StatusSummaryItem> statusSummary;
     private PeriodComparison periodComparison;

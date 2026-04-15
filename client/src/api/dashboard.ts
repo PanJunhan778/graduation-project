@@ -35,6 +35,6 @@ export function getHrDashboard(range: HrDashboardRange): Promise<Result<HrDashbo
   return request.get('/dashboard/hr', { params: { range } })
 }
 
-export function getTaxDashboard(range: TaxDashboardRange): Promise<Result<TaxDashboardVO>> {
-  return request.get('/dashboard/tax', { params: { range } })
+export function getTaxDashboard(range?: TaxDashboardRange): Promise<Result<TaxDashboardVO>> {
+  return request.get('/dashboard/tax', { params: range ? { range } : {} })
 }

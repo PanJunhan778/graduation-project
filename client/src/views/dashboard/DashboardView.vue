@@ -46,6 +46,7 @@ use([
 ])
 
 type AnalyticsTab = 'finance' | 'hr' | 'tax'
+type TaxDashboardSelectableRange = TaxDashboardRange | ''
 
 const userStore = useUserStore()
 
@@ -84,7 +85,7 @@ const taxState = reactive({
   loaded: false,
   loading: false,
   error: '',
-  range: 'thisYear' as TaxDashboardRange,
+  range: '' as TaxDashboardSelectableRange,
   data: null as TaxDashboardVO | null,
 })
 
@@ -95,11 +96,24 @@ const financeRangeOptions: Array<{ label: string; value: FinanceDashboardRange }
   { label: '全部历史', value: 'all' },
 ]
 
-const taxRangeOptions: Array<{ label: string; value: TaxDashboardRange }> = [
-  { label: '本年度', value: 'thisYear' },
-  { label: '近 12 个月', value: 'last12months' },
-  { label: '全部历史', value: 'all' },
-]
+const taxRangeOptions = computed<Array<{ label: string; value: TaxDashboardRange }>>(() => {
+  const availableYears = taxState.data?.availableYears || []
+  if (availableYears.length) {
+    return availableYears.map((year) => ({
+      label: formatTaxRangeLabel(year),
+      value: String(year) as TaxDashboardRange,
+    }))
+  }
+
+  const fallbackYear = parseTaxRangeYear(taxState.range)
+  if (!fallbackYear) return []
+  return [
+    {
+      label: formatTaxRangeLabel(fallbackYear),
+      value: String(fallbackYear) as TaxDashboardRange,
+    },
+  ]
+})
 
 const tabLabelMap: Record<AnalyticsTab, string> = {
   finance: '财务剖析',
@@ -110,12 +124,6 @@ const tabLabelMap: Record<AnalyticsTab, string> = {
 const financeRangeLabelMap: Record<FinanceDashboardRange, string> = {
   last3months: '近3个月',
   last6months: '近6个月',
-  last12months: '近12个月',
-  all: '全部历史',
-}
-
-const taxRangeLabelMap: Record<TaxDashboardRange, string> = {
-  thisYear: '本年度',
   last12months: '近12个月',
   all: '全部历史',
 }
@@ -137,7 +145,7 @@ const activeTabLabel = computed(() => tabLabelMap[activeTab.value])
 const activeRangeLabel = computed(() => {
   if (activeTab.value === 'finance') return financeRangeLabelMap[financeState.range]
   if (activeTab.value === 'hr') return '当前在职口径'
-  return taxRangeLabelMap[taxState.range]
+  return formatTaxRangeLabel(taxState.data?.selectedYear ?? parseTaxRangeYear(taxState.range))
 })
 const currentTabLoaded = computed(() => {
   if (activeTab.value === 'finance') return financeState.loaded || Boolean(financeState.data)
@@ -298,6 +306,8 @@ const financeComparisonHeadline = computed(() => {
   return `${comparison.baselineLabel}，利润与上一周期基本持平。`
 })
 
+void financeCoverageHeadline
+
 const hrAverageSalary = computed(() => {
   const count = toNumber(hrState.data?.activeEmployeeCount)
   if (count <= 0) return 0
@@ -371,6 +381,10 @@ const taxStatusBreakdown = computed(() =>
 )
 
 const taxOutstandingItems = computed(() => taxState.data?.recentOutstanding || [])
+
+void taxComparisonLabel
+void taxComparisonTone
+void taxOutstandingItems
 
 const taxRiskHeadline = computed(() => {
   const data = taxState.data
@@ -470,8 +484,9 @@ async function fetchTaxData() {
   taxState.loading = true
   taxState.error = ''
   try {
-    const res = await getTaxDashboard(taxState.range)
+    const res = await getTaxDashboard(taxState.range || undefined)
     taxState.data = normalizeTaxDashboard(res.data)
+    taxState.range = taxState.data.selectedYear ? (String(taxState.data.selectedYear) as TaxDashboardRange) : ''
     taxState.loaded = true
     if (activeTab.value === 'tax') {
       await nextTick()
@@ -709,11 +724,13 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
     return
   }
 
+  const totalIncome = toNumber(data.totalIncome)
+  const itemRatios = items.map((item) => (totalIncome > 0 ? item.amount / totalIncome : 0))
   const cumulativeRatios: number[] = []
   let runningAmount = 0
   for (const item of items) {
     runningAmount += item.amount
-    cumulativeRatios.push(toNumber(data.totalIncome) > 0 ? runningAmount / toNumber(data.totalIncome) : 0)
+    cumulativeRatios.push(totalIncome > 0 ? runningAmount / totalIncome : 0)
   }
 
   setChartOption('finance-income', financeIncomeChartRef.value, {
@@ -725,13 +742,17 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
       borderColor: 'rgba(0,0,0,0.08)',
       borderWidth: 1,
       textStyle: { color: 'rgba(0,0,0,0.85)' },
-      formatter: (params: Array<{ seriesName: string; value: number; axisValue: string; marker: string }>) => {
+      formatter: (
+        params: Array<{ seriesName: string; value: number; axisValue: string; marker: string; dataIndex: number }>,
+      ) => {
         const amountItem = params.find((item) => item.seriesName === '收入金额')
-        const ratioItem = params.find((item) => item.seriesName === '累计贡献')
+        const ratioItem = params.find((item) => item.seriesName === '累计占比')
         if (!amountItem) return ''
+        const currentRatio = itemRatios[amountItem.dataIndex] ?? 0
         return `<div style="min-width: 190px;">
           <div style="font-weight: 700; margin-bottom: 8px;">${amountItem.axisValue}</div>
           <div>${amountItem.marker}${amountItem.seriesName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(amountItem.value)}</span></div>
+          <div>${amountItem.marker}当前来源占比<span style="float:right;margin-left:18px;font-weight:600;">${formatRatio(currentRatio)}</span></div>
           ${ratioItem ? `<div>${ratioItem.marker}${ratioItem.seriesName}<span style="float:right;margin-left:18px;font-weight:600;">${formatRatio(ratioItem.value)}</span></div>` : ''}
         </div>`
       },
@@ -794,7 +815,7 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
         },
       },
       {
-        name: '累计贡献',
+        name: '累计占比',
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
@@ -1425,6 +1446,10 @@ function normalizeTaxDashboard(data: TaxDashboardVO): TaxDashboardVO {
     positiveTaxAmount: toNumber(data.positiveTaxAmount),
     incomeBase: toNumber(data.incomeBase),
     unpaidTaxAmount: toNumber(data.unpaidTaxAmount),
+    availableYears: (data.availableYears || [])
+      .map((year) => toNumber(year))
+      .filter((year) => Number.isInteger(year) && year > 0),
+    selectedYear: data.selectedYear == null ? null : toNumber(data.selectedYear),
     taxTypeStructure: (data.taxTypeStructure || []).map((item) => ({
       taxType: item.taxType,
       amount: toNumber(item.amount),
@@ -1459,6 +1484,16 @@ function formatCurrency(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
+}
+
+function parseTaxRangeYear(range: string | null | undefined) {
+  if (!range || !/^\d{4}$/.test(range)) return null
+  const year = Number.parseInt(range, 10)
+  return Number.isInteger(year) ? year : null
+}
+
+function formatTaxRangeLabel(year: number | null | undefined) {
+  return typeof year === 'number' && Number.isInteger(year) ? `${year}年度` : '暂无年度'
 }
 
 function formatSignedCurrency(value: number) {
@@ -1619,13 +1654,7 @@ function toNumber(value: number | string | undefined | null) {
               <article class="signal-card signal-card--finance-structure ds-card">
                 <span class="signal-label">Top3 收入占比</span>
                 <strong class="signal-value">{{ financeSourceCount > 0 ? formatRatio(financeTop3Share) : '—' }}</strong>
-                <p>
-                  {{
-                    financeSourceCount > 0
-                      ? `${formatCount(financeSourceCount)} 个来源里，前三大来源贡献了主要现金入口。`
-                      : '等待收入来源形成后，再判断集中风险。'
-                  }}
-                </p>
+                <p>看收入依赖高不高</p>
               </article>
 
               <article class="signal-card signal-card--finance-pressure ds-card" :class="financeCoverageRatio >= 0.7 ? 'is-alert' : ''">
@@ -1633,7 +1662,7 @@ function toNumber(value: number | string | undefined | null) {
                 <strong class="signal-value" :class="financeCoverageRatio >= 0.7 ? 'expense' : ''">
                   {{ toNumber(financeState.data.totalIncome) > 0 ? formatRatio(financeCoverageRatio) : '—' }}
                 </strong>
-                <p>{{ financeCoverageHeadline }}</p>
+                <p>看利润空间是否收窄</p>
               </article>
 
               <article class="signal-card signal-card--finance-balance ds-card" :class="financeNetSpread < 0 ? 'is-alert' : 'is-positive'">
@@ -1641,13 +1670,7 @@ function toNumber(value: number | string | undefined | null) {
                 <strong class="signal-value" :class="financeNetSpread >= 0 ? 'income' : 'expense'">
                   {{ formatSignedCurrency(financeNetSpread) }}
                 </strong>
-                <p>
-                  {{
-                    toNumber(financeState.data.totalIncome) > 0
-                      ? '收入减支出的直接结果，适合判断当前利润空间是否还充足。'
-                      : '当前范围内暂无收入基线，净流差更偏向支出压力提醒。'
-                  }}
-                </p>
+                <p>直接看当前盈亏余量</p>
               </article>
 
               <article
@@ -1661,7 +1684,7 @@ function toNumber(value: number | string | undefined | null) {
                 >
                   {{ financeState.data.periodComparison ? formatSignedCurrency(financeProfitChange) : '—' }}
                 </strong>
-                <p>{{ financeComparisonHeadline }}</p>
+                <p>对比上一周期弹性</p>
               </article>
             </section>
 
@@ -1768,31 +1791,25 @@ function toNumber(value: number | string | undefined | null) {
               <article class="signal-card ds-card signal-card--hr-size">
                 <span class="signal-label">当前在职人数</span>
                 <strong class="signal-value">{{ formatCount(hrState.data.activeEmployeeCount) }} 人</strong>
-                <p>按当前 `status=1` 的员工记录统计。</p>
+                <p>当前在职口径统计</p>
               </article>
 
               <article class="signal-card ds-card signal-card--hr-cost">
                 <span class="signal-label">当前基础薪资总额</span>
                 <strong class="signal-value income">{{ formatCurrency(hrState.data.activeSalaryTotal) }}</strong>
-                <p>用于观察固定人力成本的当前压力。</p>
+                <p>观察固定人力成本</p>
               </article>
 
               <article class="signal-card ds-card signal-card--hr-average">
                 <span class="signal-label">人均基础薪资</span>
                 <strong class="signal-value">{{ formatCurrency(hrAverageSalary) }}</strong>
-                <p>帮助判断当前团队的人力单价是否已经抬高。</p>
+                <p>判断团队单价高低</p>
               </article>
 
               <article class="signal-card ds-card signal-card--hr-focus">
                 <span class="signal-label">最高负担部门</span>
                 <strong class="signal-value">{{ hrTopDepartment ? formatRatio(hrTopDepartment.ratio) : '—' }}</strong>
-                <p>
-                  {{
-                    hrTopDepartment
-                      ? `${hrTopDepartment.department} 当前承担最多基础薪资负担。`
-                      : '等待部门结构形成后再判断负担重心。'
-                  }}
-                </p>
+                <p>看成本重心压在哪</p>
               </article>
             </section>
 
@@ -1863,7 +1880,7 @@ function toNumber(value: number | string | undefined | null) {
                 v-model="taxState.range"
                 size="small"
                 class="range-select"
-                :disabled="taxState.loading || exporting"
+                :disabled="taxState.loading || exporting || !taxRangeOptions.length"
                 @change="handleTaxRangeChange"
               >
                 <el-option
@@ -1902,7 +1919,7 @@ function toNumber(value: number | string | undefined | null) {
                 <strong class="signal-value" :class="taxBurdenTone === 'danger' ? 'expense' : taxBurdenTone === 'healthy' ? 'income' : ''">
                   {{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}
                 </strong>
-                <p>{{ taxComparisonLabel }}</p>
+                <p>看税负强度高不高</p>
               </article>
 
               <article class="signal-card signal-card--tax-overdue ds-card" :class="{ 'is-alert': taxUnpaidRatio > 0 }">
@@ -1910,13 +1927,7 @@ function toNumber(value: number | string | undefined | null) {
                 <strong class="signal-value" :class="taxUnpaidRatio > 0 ? 'expense' : ''">
                   {{ toNumber(taxState.data.positiveTaxAmount) > 0 ? formatRatio(taxUnpaidRatio) : '0.0%' }}
                 </strong>
-                <p>
-                  {{
-                    toNumber(taxState.data.positiveTaxAmount) > 0
-                      ? `待缴正向税额 ${formatCurrency(taxState.data.unpaidTaxAmount)}`
-                      : '当前范围内暂无正向税额基线'
-                  }}
-                </p>
+                <p>看待缴压力重不重</p>
               </article>
 
               <article class="signal-card signal-card--tax-records ds-card" :class="{ 'is-alert': taxUnpaidRecordRatio > 0 }">
@@ -1924,9 +1935,7 @@ function toNumber(value: number | string | undefined | null) {
                 <strong class="signal-value" :class="taxUnpaidRecordRatio > 0 ? 'expense' : ''">
                   {{ taxStatusTotalCount > 0 ? formatRatio(taxUnpaidRecordRatio) : '0.0%' }}
                 </strong>
-                <p>
-                  {{ taxStatusTotalCount > 0 ? `共 ${formatCount(taxStatusTotalCount)} 笔税务记录` : '当前范围内暂无状态记录' }}
-                </p>
+                <p>看事项是否在堆积</p>
               </article>
 
               <article class="signal-card signal-card--tax-focus ds-card">
@@ -1934,7 +1943,7 @@ function toNumber(value: number | string | undefined | null) {
                 <strong class="signal-value" :class="taxTopTaxTypeShare >= 0.5 ? 'expense' : ''">
                   {{ taxTopTaxType ? formatRatio(taxTopTaxTypeShare) : '—' }}
                 </strong>
-                <p>{{ taxTopTaxType ? `当前压力主要来自 ${taxTopTaxType.taxType}` : '当前范围内暂无税种结构' }}</p>
+                <p>锁定主要税种压力</p>
               </article>
             </section>
 
@@ -2689,7 +2698,8 @@ function toNumber(value: number | string | undefined | null) {
   min-height: 140px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: space-between;
   transition:
     transform 0.18s ease,
     box-shadow 0.18s ease,
@@ -2779,6 +2789,52 @@ function toNumber(value: number | string | undefined | null) {
   background: rgba(221, 91, 0, 0.72);
 }
 
+.signal-card--tax-rate {
+  border-color: rgba(19, 117, 209, 0.12);
+  background: linear-gradient(180deg, rgba(248, 252, 255, 0.98), rgba(241, 248, 255, 0.96));
+}
+
+.signal-card--tax-rate::before {
+  background: rgba(19, 117, 209, 0.78);
+}
+
+.signal-card--tax-overdue {
+  border-color: rgba(221, 91, 0, 0.1);
+  background: linear-gradient(180deg, rgba(255, 251, 247, 0.98), rgba(252, 245, 239, 0.96));
+}
+
+.signal-card--tax-overdue::before {
+  background: rgba(221, 91, 0, 0.72);
+}
+
+.signal-card--tax-overdue.is-alert {
+  border-color: rgba(221, 91, 0, 0.16);
+  box-shadow: 0 14px 30px rgba(221, 91, 0, 0.08);
+}
+
+.signal-card--tax-records {
+  border-color: rgba(33, 49, 131, 0.08);
+  background: linear-gradient(180deg, rgba(249, 250, 255, 0.98), rgba(243, 245, 252, 0.96));
+}
+
+.signal-card--tax-records::before {
+  background: rgba(33, 49, 131, 0.72);
+}
+
+.signal-card--tax-records.is-alert {
+  border-color: rgba(33, 49, 131, 0.14);
+  box-shadow: 0 14px 30px rgba(33, 49, 131, 0.08);
+}
+
+.signal-card--tax-focus {
+  border-color: rgba(42, 157, 153, 0.1);
+  background: linear-gradient(180deg, rgba(247, 252, 251, 0.98), rgba(240, 248, 246, 0.96));
+}
+
+.signal-card--tax-focus::before {
+  background: rgba(42, 157, 153, 0.72);
+}
+
 .signal-card.is-positive {
   border-color: rgba(42, 157, 153, 0.14);
 }
@@ -2789,16 +2845,20 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .signal-label {
+  width: 100%;
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.45;
   color: #615d59;
 }
 
 .signal-value {
-  margin-top: 8px;
+  margin-top: 0;
   display: block;
-  font-size: 26px;
+  width: 100%;
+  font-size: 30px;
   font-weight: 700;
+  line-height: 1.12;
   letter-spacing: -0.4px;
   color: rgba(0, 0, 0, 0.95);
   font-variant-numeric: tabular-nums;
@@ -2813,11 +2873,12 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .signal-card p {
-  margin-top: 8px;
+  margin-top: 0;
+  width: 100%;
   font-size: 12px;
   line-height: 1.6;
   color: #615d59;
-  max-width: 30ch;
+  max-width: 100%;
 }
 
 .panel-card--secondary {
@@ -3531,7 +3592,10 @@ function toNumber(value: number | string | undefined | null) {
     font-size: 24px;
   }
 
-  .signal-value,
+  .signal-value {
+    font-size: 28px;
+  }
+
   .summary-value {
     font-size: 26px;
   }

@@ -283,7 +283,7 @@ export interface HomeAiSummaryVO {
 /** 数据看板时间范围 */
 export type FinanceDashboardRange = 'last3months' | 'last6months' | 'last12months' | 'all'
 export type HrDashboardRange = FinanceDashboardRange
-export type TaxDashboardRange = 'thisYear' | 'last12months' | 'all'
+export type TaxDashboardRange = `${number}`
 
 /** 财务看板 - 支出切片项 */
 export interface FinanceExpenseBreakdownItem {
@@ -390,6 +390,8 @@ export interface TaxDashboardVO {
   positiveTaxAmount: number
   incomeBase: number
   unpaidTaxAmount: number
+  availableYears: number[]
+  selectedYear: number | null
   taxTypeStructure: TaxTypeStructureItem[]
   statusSummary: TaxStatusSummaryItem[]
   periodComparison: TaxPeriodComparison | null
