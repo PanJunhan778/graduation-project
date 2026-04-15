@@ -11,6 +11,7 @@ server/target/
 tmp/
 test-results/
 *.log
+AGENTS.md
 
 # OS/editor noise at workspace root
 Thumbs.db
