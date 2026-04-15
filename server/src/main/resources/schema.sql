@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `company` (
     `is_deleted`    TINYINT      NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
     UNIQUE INDEX `idx_company_code` (`company_code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公司表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='公司表';
 
 -- 2. 用户表
 CREATE TABLE IF NOT EXISTS `user` (
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS `user` (
     PRIMARY KEY (`id`),
     UNIQUE INDEX `idx_username` (`username`),
     INDEX `idx_company_id` (`company_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户表';
 
 -- 3. 财务流水表
 CREATE TABLE IF NOT EXISTS `finance_record` (
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS `finance_record` (
     INDEX `idx_company_id` (`company_id`),
     INDEX `idx_category` (`category`),
     INDEX `idx_date` (`date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='财务流水表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='财务流水表';
 
 -- 4. 员工表
 CREATE TABLE IF NOT EXISTS `employee` (
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS `employee` (
     PRIMARY KEY (`id`),
     INDEX `idx_company_id` (`company_id`),
     INDEX `idx_department` (`department`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='员工表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='员工表';
 
 -- 5. 税费表
 CREATE TABLE IF NOT EXISTS `tax_record` (
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS `tax_record` (
     `is_deleted`       TINYINT       NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
     INDEX `idx_company_period_type` (`company_id`, `tax_period`, `tax_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='税费表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='税费表';
 
 -- 6. 审计日志表
 CREATE TABLE IF NOT EXISTS `audit_log` (
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS `audit_log` (
     PRIMARY KEY (`id`),
     INDEX `idx_company_id` (`company_id`),
     INDEX `idx_time` (`operation_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='审计日志表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='审计日志表';
 
 -- 7. AI 会话记录表
 CREATE TABLE IF NOT EXISTS `ai_chat_log` (
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS `ai_chat_log` (
     INDEX `idx_company_id` (`company_id`),
     INDEX `idx_session_id` (`session_id`),
     INDEX `idx_create_time` (`create_time`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI会话记录表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI会话记录表';
 
 CREATE TABLE IF NOT EXISTS `ai_pending_action` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS `ai_pending_action` (
     UNIQUE INDEX `uk_confirm_token` (`confirm_token`),
     INDEX `idx_company_status` (`company_id`, `status`),
     INDEX `idx_session_id` (`session_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI待确认动作表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI待确认动作表';
 
 -- ============================================
 -- 预置数据：系统管理员账号

@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-本项目是一个面向中小企业/小微企业的毕业设计项目，定位为前后端分离的轻量化企业管理系统。系统围绕财务、员工、人事与税务等核心经营数据展开，帮助企业老板和管理者完成日常数据录入、经营看板查看、风险追踪与信息维护。
+本项目是一个面向中小企业/小微企业的毕业设计项目，定位为前后端分离的轻量化企业管理系统。系统围绕财务、人事与税务等核心经营数据展开，帮助企业老板和管理者完成日常数据录入、经营看板查看、风险追踪与信息维护。
 
 项目的核心价值在于将传统分散在 Excel、手工表格和零散记录中的经营数据进行结构化管理，并结合 **ECharts 数据可视化** 与 **AI 辅助分析能力**，让管理者更直观地掌握企业经营状况，辅助进行日常经营判断与决策。
 
@@ -12,8 +12,6 @@
 - `server`：Spring Boot 3 后端项目
 
 ## 核心功能
-
-根据当前源码与 PRD，可归纳出本项目已落地的功能模块如下：
 
 - **用户登录与身份认证**
   - 支持账号密码登录
@@ -49,7 +47,6 @@
   - 支持多轮对话、会话列表、历史消息查看、会话删除
   - 支持企业经营摘要、数据查询与辅助分析
   - 支持 HITL（Human-in-the-loop）人工确认流程
-  - 当前代码中 `POST /api/ai/chat` 为**同步接口**，返回普通消息或 `action_required` 结果，而非 SSE 流式输出
 - **PDF 报告导出**
   - 首页驾驶舱支持导出 PDF
   - 深度数据看板支持导出 PDF
@@ -57,6 +54,7 @@
 - **操作日志与审计**
   - 审计覆盖 `finance`、`employee`、`tax` 三个业务模块
   - 支持按 `module`、`operationType`、日期范围查询
+  - 操作日志供`owner`用户查看与审计
 - **个人资料与公司设置**
   - 用户可查看和修改个人资料
   - 支持修改密码
@@ -108,40 +106,35 @@
 
 ## 项目结构
 
-> 以下目录树仅展示源码目录和关键配置文件，已省略 `node_modules`、`target`、`dist`、`build` 等依赖或构建产物。
-
 ```text
 .
-├─ client
-│  ├─ src
-│  │  ├─ api
-│  │  ├─ assets
-│  │  ├─ components
-│  │  ├─ composables
-│  │  ├─ layouts
-│  │  ├─ router
-│  │  ├─ store
-│  │  ├─ styles
-│  │  ├─ types
-│  │  ├─ utils
-│  │  └─ views
-│  ├─ package.json
-│  └─ vite.config.ts
-├─ server
-│  ├─ src
-│  │  ├─ main
-│  │  │  ├─ java
-│  │  │  └─ resources
-│  │  │     ├─ application.yml
-│  │  │     └─ schema.sql
-│  │  └─ test
-│  │     └─ java
-│  ├─ pom.xml
-│  ├─ mvnw
-│  └─ mvnw.cmd
-├─ 面向用户需求文档 (PRD).md
-├─ 软件需求规格说明书 (SRS).md
-└─ 进度.md
+├─ client/                      # 前端项目（Vue 3 + Vite）
+│  ├─ src/
+│  │  ├─ api/                  # 前端接口请求封装
+│  │  ├─ assets/               # 静态资源
+│  │  ├─ components/           # 通用组件
+│  │  ├─ composables/          # 组合式逻辑封装
+│  │  ├─ layouts/              # 页面布局与导航框架
+│  │  ├─ router/               # 前端路由配置
+│  │  ├─ store/                # Pinia 状态管理
+│  │  ├─ styles/               # 全局样式
+│  │  ├─ types/                # TypeScript 类型定义
+│  │  ├─ utils/                # 工具函数（如 Excel、PDF）
+│  │  └─ views/                # 页面级视图模块
+│  ├─ package.json             # 前端依赖与脚本
+│  └─ vite.config.ts           # Vite 配置与开发代理
+└─ server/                     # 后端项目（Spring Boot）
+   ├─ src/
+   │  ├─ main/
+   │  │  ├─ java/              # 后端源码（controller/service/mapper 等）
+   │  │  └─ resources/
+   │  │     ├─ application.yml # 后端主配置文件
+   │  │     └─ schema.sql      # 数据库初始化脚本
+   │  └─ test/
+   │     └─ java/              # 后端测试代码
+   ├─ pom.xml                  # Maven 依赖配置
+   ├─ mvnw                     # Maven Wrapper（Unix）
+   └─ mvnw.cmd                 # Maven Wrapper（Windows）
 ```
 
 ## 环境要求
@@ -306,20 +299,6 @@ server/src/main/resources/application.yml
 - `model`：当前使用的模型名称
 - `timeout`：AI 请求超时时间
 
-### 安全提醒
-
-当前仓库中的 `application.yml` 已出现真实敏感配置示例，包括：
-
-- 数据库密码
-- JWT Secret
-- AI API Key
-
-如果你准备公开仓库或继续长期维护，建议尽快改为：
-
-- 环境变量注入
-- 本地私有配置文件覆盖
-- CI/CD Secret 管理
-
 ## 角色说明
 
 ### Admin
@@ -356,8 +335,4 @@ server/src/main/resources/application.yml
 
 ## 注意事项
 
-- 请不要提交 `node_modules`、`target`、`dist`、`build` 等依赖或构建产物目录。
-- 请不要提交真实数据库密码、API Key、JWT Secret 等敏感信息。
-- 当前项目中的部分产品描述来自 PRD / SRS，但 README 已尽量以**当前代码现状**为准。
-- AI 对话接口目前按同步结果处理，不应在 README 中描述为尚未落地的 SSE 流式实现。
 - 本项目主要用于毕业设计、学习与演示，如需用于生产环境，请进一步补充部署、安全、监控与运维能力。
