@@ -3,6 +3,15 @@
 .idea/
 .vscode/
 
+client/node_modules/
+client/dist/
+client/.vite/
+client/.vite-temp/
+server/target/
+tmp/
+test-results/
+*.log
+
 # OS/editor noise at workspace root
 Thumbs.db
 .DS_Store
