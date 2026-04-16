@@ -47,6 +47,7 @@ use([
 
 type AnalyticsTab = 'finance' | 'hr' | 'tax'
 type TaxDashboardSelectableRange = TaxDashboardRange | ''
+type FinanceTrendViewMode = 'mixed' | 'line' | 'bar'
 
 const userStore = useUserStore()
 
@@ -54,6 +55,7 @@ const dashboardRootRef = ref<HTMLDivElement | null>(null)
 const activeTab = ref<AnalyticsTab>('finance')
 const exporting = ref(false)
 const showExportStage = ref(false)
+const financeTrendMode = ref<FinanceTrendViewMode>('mixed')
 
 const financeExpenseChartRef = ref<HTMLDivElement | null>(null)
 const financeIncomeChartRef = ref<HTMLDivElement | null>(null)
@@ -96,6 +98,12 @@ const financeRangeOptions: Array<{ label: string; value: FinanceDashboardRange }
   { label: '全部历史', value: 'all' },
 ]
 
+const financeTrendModeOptions: Array<{ label: string; value: FinanceTrendViewMode }> = [
+  { label: '混合', value: 'mixed' },
+  { label: '折线', value: 'line' },
+  { label: '柱状', value: 'bar' },
+]
+
 const taxRangeOptions = computed<Array<{ label: string; value: TaxDashboardRange }>>(() => {
   const availableYears = taxState.data?.availableYears || []
   if (availableYears.length) {
@@ -122,9 +130,9 @@ const tabLabelMap: Record<AnalyticsTab, string> = {
 }
 
 const financeRangeLabelMap: Record<FinanceDashboardRange, string> = {
-  last3months: '近3个月',
-  last6months: '近6个月',
-  last12months: '近12个月',
+  last3months: '近 3 个月',
+  last6months: '近 6 个月',
+  last12months: '近 12 个月',
   all: '全部历史',
 }
 
@@ -232,7 +240,7 @@ const taxBurdenTone = computed(() => {
 
 const currentMethodologyNote = computed(() => {
   if (activeTab.value === 'finance') {
-    return '财务按范围聚合，先看收入集中度，再看成本吞噬与利润趋势。'
+    return '财务按范围聚合，先看收入集中度，再看收支规模与利润率。'
   }
   if (activeTab.value === 'hr') {
     return '人事页只讲当前在职团队的结构与薪资负担，不把现有名册回推包装成历史快照。'
@@ -305,6 +313,26 @@ const financeComparisonHeadline = computed(() => {
   }
   return `${comparison.baselineLabel}，利润与上一周期基本持平。`
 })
+
+const financeTrendPanelTitle = computed(() =>
+  financeTrendMode.value === 'bar' ? '月度收入、支出与利润走势' : '月度收支规模与利润率',
+)
+
+const financeTrendPanelDescription = computed(() => {
+  if (financeTrendMode.value === 'line') {
+    return '把收支改成折线后，更适合连续观察利润率拐点是否正在形成。'
+  }
+  if (financeTrendMode.value === 'bar') {
+    return '切回金额柱后，适合直接比较每个月的收入、支出和利润差。'
+  }
+  return '默认先看收支规模，再看利润率是否沿时间线走弱。'
+})
+
+const financeTrendEmptyDescription = computed(() =>
+  financeTrendMode.value === 'bar'
+    ? '当前范围内还没有形成可读的收入、支出与利润序列。'
+    : '当前范围内还没有形成可读的收支与利润率序列。',
+)
 
 void financeCoverageHeadline
 
@@ -406,7 +434,7 @@ const taxRiskHeadline = computed(() => {
     return '税负强度正在抬头，适合结合税种结构复盘本期经营压力。'
   }
   if (taxTopTaxType.value && taxTopTaxTypeShare.value >= 0.5) {
-    return `税负压力高度集中在${taxTopTaxType.value.taxType}，需要持续盯住单一税种波动。`
+    return `税负压力高度集中在 ${taxTopTaxType.value.taxType}，需要持续盯住单一税种波动。`
   }
   return '税负与缴纳节奏整体稳定，更适合持续观察税种结构变化。'
 })
@@ -419,6 +447,12 @@ watch(
     renderActiveCharts()
   },
 )
+
+watch(financeTrendMode, (mode, previousMode) => {
+  if (mode === previousMode) return
+  if (activeTab.value !== 'finance' || !financeState.data || !financeHasData.value) return
+  renderFinanceTrendChart(financeState.data)
+})
 
 onMounted(async () => {
   await ensureTabLoaded(activeTab.value)
@@ -733,6 +767,35 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
     cumulativeRatios.push(totalIncome > 0 ? runningAmount / totalIncome : 0)
   }
 
+  const incomeAmountName = '收入金额'
+  const cumulativeRatioName = '累计占比'
+  const cumulativeTailName = '累计补齐'
+  const hasOtherBucket = items.at(-1)?.name === '其他来源' && items.length >= 2
+  const mainLineData = hasOtherBucket ? [...cumulativeRatios.slice(0, -1), null] : [...cumulativeRatios]
+  const tailLineData = items.map<null | { value: number; symbolSize?: number; itemStyle?: { color: string } }>((_, index) => {
+    if (!hasOtherBucket) return null
+    const tailStartIndex = items.length - 2
+    const tailEndIndex = items.length - 1
+    if (index === tailStartIndex) {
+      return {
+        value: cumulativeRatios[index],
+        symbolSize: 0,
+        itemStyle: { color: 'rgba(33, 49, 131, 0.42)' },
+      }
+    }
+    if (index === tailEndIndex) {
+      return {
+        value: cumulativeRatios[index],
+        symbolSize: 5,
+        itemStyle: { color: 'rgba(33, 49, 131, 0.42)' },
+      }
+    }
+    return null
+  })
+  const focusSeriesCount = hasOtherBucket ? items.length - 1 : items.length
+  const highlightCount = Math.min(3, focusSeriesCount)
+  const highlightIndex = Math.max(0, highlightCount - 1)
+
   setChartOption('finance-income', financeIncomeChartRef.value, {
     color: ['#2a9d99', '#213183'],
     tooltip: {
@@ -745,17 +808,28 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
       formatter: (
         params: Array<{ seriesName: string; value: number; axisValue: string; marker: string; dataIndex: number }>,
       ) => {
-        const amountItem = params.find((item) => item.seriesName === '收入金额')
-        const ratioItem = params.find((item) => item.seriesName === '累计占比')
-        if (!amountItem) return ''
-        const currentRatio = itemRatios[amountItem.dataIndex] ?? 0
-        return `<div style="min-width: 190px;">
-          <div style="font-weight: 700; margin-bottom: 8px;">${amountItem.axisValue}</div>
-          <div>${amountItem.marker}${amountItem.seriesName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(amountItem.value)}</span></div>
-          <div>${amountItem.marker}当前来源占比<span style="float:right;margin-left:18px;font-weight:600;">${formatRatio(currentRatio)}</span></div>
-          ${ratioItem ? `<div>${ratioItem.marker}${ratioItem.seriesName}<span style="float:right;margin-left:18px;font-weight:600;">${formatRatio(ratioItem.value)}</span></div>` : ''}
-        </div>`
+        {
+          const amountItem = params.find((item) => item.seriesName === incomeAmountName)
+          const ratioItem = params.find((item) => item.seriesName === cumulativeRatioName || item.seriesName === cumulativeTailName)
+          if (!amountItem) return ''
+          const currentRatio = itemRatios[amountItem.dataIndex] ?? 0
+          const cumulativeLabel = amountItem.axisValue === '其他来源' ? '累计至全部来源' : cumulativeRatioName
+          return `<div style="min-width: 190px;">
+            <div style="font-weight: 700; margin-bottom: 8px;">${amountItem.axisValue}</div>
+            <div>${amountItem.marker}${amountItem.seriesName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(amountItem.value)}</span></div>
+            <div>${amountItem.marker}当前来源占比<span style="float:right;margin-left:18px;font-weight:600;">${formatRatio(currentRatio)}</span></div>
+            ${ratioItem ? `<div>${ratioItem.marker}${cumulativeLabel}<span style="float:right;margin-left:18px;font-weight:600;">${formatRatio(ratioItem.value)}</span></div>` : ''}
+          </div>`
+        }
       },
+    },
+    legend: {
+      top: 0,
+      data: [incomeAmountName, cumulativeRatioName],
+      icon: 'roundRect',
+      itemWidth: 12,
+      itemHeight: 8,
+      textStyle: { color: '#615d59' },
     },
     grid: {
       top: 18,
@@ -796,7 +870,7 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
     ],
     series: [
       {
-        name: '收入金额',
+        name: incomeAmountName,
         type: 'bar',
         barWidth: 24,
         borderRadius: [12, 12, 0, 0],
@@ -815,7 +889,7 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
         },
       },
       {
-        name: '累计占比',
+        name: cumulativeRatioName,
         type: 'line',
         yAxisIndex: 1,
         smooth: true,
@@ -823,17 +897,37 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
         lineStyle: { width: 4 },
         itemStyle: { color: '#213183' },
         areaStyle: { color: 'rgba(33, 49, 131, 0.12)' },
-        data: cumulativeRatios,
+        data: mainLineData,
         label: {
           show: true,
           position: 'top',
           color: '#213183',
           formatter: (params: { dataIndex: number; value: number }) =>
-            params.dataIndex === Math.min(2, cumulativeRatios.length - 1)
-              ? `Top${Math.min(3, cumulativeRatios.length)} ${formatRatio(cumulativeRatios[params.dataIndex])}`
+            params.dataIndex === highlightIndex
+              ? `Top${highlightCount} ${formatRatio(cumulativeRatios[params.dataIndex])}`
               : '',
         },
       },
+      ...(hasOtherBucket
+        ? [
+            {
+              name: cumulativeTailName,
+              type: 'line',
+              yAxisIndex: 1,
+              smooth: true,
+              showSymbol: true,
+              symbolSize: 5,
+              z: 2,
+              lineStyle: {
+                width: 3,
+                type: 'dashed',
+                color: 'rgba(33, 49, 131, 0.38)',
+              },
+              itemStyle: { color: 'rgba(33, 49, 131, 0.42)' },
+              data: tailLineData,
+            },
+          ]
+        : []),
     ],
   })
 }
@@ -844,20 +938,44 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
     return
   }
 
+  const incomeName = '\u6536\u5165'
+  const expenseName = '\u652f\u51fa'
+  const profitName = '\u5229\u6da6'
+  const profitMarginName = '\u5229\u6da6\u7387'
+  const isBarMode = financeTrendMode.value === 'bar'
+  const isLineMode = financeTrendMode.value === 'line'
+  const months = data.monthlyTrend.map((item) => item.month)
+  const profitMarginSeries = data.monthlyTrend.map((item) => (item.income > 0 ? item.profit / item.income : null))
+
   setChartOption('finance-trend', financeTrendChartRef.value, {
     color: ['#2a9d99', '#dd5b00', '#213183'],
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross' },
+      axisPointer: { type: isBarMode ? 'shadow' : 'cross' },
       backgroundColor: 'rgba(255,255,255,0.96)',
       borderColor: 'rgba(0,0,0,0.08)',
       borderWidth: 1,
       textStyle: { color: 'rgba(0,0,0,0.85)' },
-      formatter: (params: Array<{ seriesName: string; value: number; axisValue: string; marker: string }>) => {
-        const title = formatMonthTitle(params[0]?.axisValue || '')
-        const lines = params.map((item) =>
-          `${item.marker}${item.seriesName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(item.value)}</span>`,
-        )
+      formatter: (params: Array<{ seriesName: string; value: number | null; axisValue: string; marker: string }>) => {
+        const axisValue = params[0]?.axisValue || ''
+        const title = formatMonthTitle(axisValue)
+        const currentPoint = data.monthlyTrend.find((item) => item.month === axisValue)
+        if (!currentPoint) return ''
+
+        const markerMap = new Map(params.map((item) => [item.seriesName, item.marker]))
+        const incomeMarker = markerMap.get(incomeName) || buildTooltipMarker('#2a9d99')
+        const expenseMarker = markerMap.get(expenseName) || buildTooltipMarker('#dd5b00')
+        const profitMarker = isBarMode
+          ? markerMap.get(profitName) || buildTooltipMarker(currentPoint.profit >= 0 ? '#213183' : '#d1495b')
+          : markerMap.get(profitMarginName) || buildTooltipMarker('#213183')
+
+        const lines = [
+          `${incomeMarker}${incomeName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(currentPoint.income)}</span>`,
+          `${expenseMarker}${expenseName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(currentPoint.expense)}</span>`,
+          isBarMode
+            ? `${profitMarker}${profitName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(currentPoint.profit)}</span>`
+            : `${profitMarker}${profitMarginName}<span style="float:right;margin-left:18px;font-weight:600;">${formatFinanceTrendRatio(currentPoint.income > 0 ? currentPoint.profit / currentPoint.income : null)}</span>`,
+        ]
         return `<div style="min-width: 210px;">
           <div style="font-weight: 700; margin-bottom: 8px;">${title}</div>
           ${lines.join('')}
@@ -866,25 +984,16 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
     },
     legend: {
       top: 0,
+      data: [incomeName, expenseName, isBarMode ? profitName : profitMarginName],
       icon: 'roundRect',
       itemWidth: 12,
       itemHeight: 8,
       textStyle: { color: '#615d59' },
     },
-    toolbox: {
-      show: true,
-      right: 14,
-      top: 0,
-      feature: {
-        magicType: { show: true, type: ['line', 'bar'] },
-        restore: { show: true }
-      },
-      iconStyle: { borderColor: '#8892a5' }
-    },
     grid: {
       top: 44,
       left: 14,
-      right: 14,
+      right: isBarMode ? 14 : 64,
       bottom: 40,
       containLabel: true,
     },
@@ -912,50 +1021,109 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         color: '#615d59',
         formatter: (value: string) => formatMonthTick(value),
       },
-      data: data.monthlyTrend.map((item) => item.month),
+      data: months,
     },
-    yAxis: {
-      type: 'value',
-      axisLabel: {
-        color: '#615d59',
-        formatter: (value: number) => formatAxisCurrency(value),
-      },
-      splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
-    },
+    yAxis: isBarMode
+      ? {
+          type: 'value',
+          axisLabel: {
+            color: '#615d59',
+            formatter: (value: number) => formatAxisCurrency(value),
+          },
+          splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
+        }
+      : [
+          {
+            type: 'value',
+            axisLabel: {
+              color: '#615d59',
+              formatter: (value: number) => formatAxisCurrency(value),
+            },
+            splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
+          },
+          {
+            type: 'value',
+            position: 'right',
+            axisLabel: {
+              color: '#615d59',
+              formatter: (value: number) => formatRatio(value),
+            },
+            splitLine: { show: false },
+          },
+        ],
     series: [
-      {
-        name: '利润',
-        type: 'bar',
-        barWidth: 18,
-        borderRadius: [8, 8, 0, 0],
-        itemStyle: {
-          color: (params: { value: number }) => (params.value >= 0 ? '#213183' : '#d1495b'),
-          shadowColor: 'rgba(33, 49, 131, 0.18)',
-          shadowBlur: 16,
-          shadowOffsetY: 8,
-        },
-        data: data.monthlyTrend.map((item) => item.profit),
-      },
-      {
-        name: '收入',
-        type: 'line',
-        smooth: true,
-        showSymbol: true,
-        symbolSize: 6,
-        lineStyle: { width: 4 },
-        areaStyle: { color: 'rgba(42, 157, 153, 0.12)' },
-        data: data.monthlyTrend.map((item) => item.income),
-      },
-      {
-        name: '支出',
-        type: 'line',
-        smooth: true,
-        showSymbol: true,
-        symbolSize: 6,
-        lineStyle: { width: 4 },
-        areaStyle: { color: 'rgba(221, 91, 0, 0.08)' },
-        data: data.monthlyTrend.map((item) => item.expense),
-      },
+      isLineMode
+        ? {
+            name: incomeName,
+            type: 'line',
+            smooth: true,
+            showSymbol: true,
+            symbolSize: 6,
+            itemStyle: { color: '#2a9d99' },
+            lineStyle: { width: 4, color: '#2a9d99' },
+            areaStyle: { color: 'rgba(42, 157, 153, 0.10)' },
+            data: data.monthlyTrend.map((item) => item.income),
+          }
+        : {
+            name: incomeName,
+            type: 'bar',
+            barWidth: isBarMode ? 14 : 18,
+            itemStyle: {
+              color: '#2a9d99',
+              borderRadius: [8, 8, 0, 0],
+            },
+            data: data.monthlyTrend.map((item) => item.income),
+          },
+      isLineMode
+        ? {
+            name: expenseName,
+            type: 'line',
+            smooth: true,
+            showSymbol: true,
+            symbolSize: 6,
+            itemStyle: { color: '#dd5b00' },
+            lineStyle: { width: 4, color: '#dd5b00' },
+            areaStyle: { color: 'rgba(221, 91, 0, 0.08)' },
+            data: data.monthlyTrend.map((item) => item.expense),
+          }
+        : {
+            name: expenseName,
+            type: 'bar',
+            barWidth: isBarMode ? 14 : 18,
+            itemStyle: {
+              color: '#dd5b00',
+              borderRadius: [8, 8, 0, 0],
+            },
+            data: data.monthlyTrend.map((item) => item.expense),
+          },
+      isBarMode
+        ? {
+            name: profitName,
+            type: 'bar',
+            barWidth: 14,
+            itemStyle: {
+              color: (params: { value: number }) => (params.value >= 0 ? '#213183' : '#d1495b'),
+              shadowColor: 'rgba(33, 49, 131, 0.18)',
+              shadowBlur: 16,
+              shadowOffsetY: 8,
+              borderRadius: [8, 8, 0, 0],
+            },
+            data: data.monthlyTrend.map((item) => item.profit),
+          }
+        : {
+            name: profitMarginName,
+            type: 'line',
+            yAxisIndex: 1,
+            smooth: true,
+            showSymbol: true,
+            connectNulls: false,
+            symbolSize: 6,
+            z: 3,
+            itemStyle: { color: '#213183' },
+            lineStyle: { width: 3, color: '#213183' },
+            areaStyle: { color: 'rgba(33, 49, 131, 0.08)' },
+            data: profitMarginSeries,
+          },
     ],
   })
 }
@@ -1542,6 +1710,15 @@ function formatMonthTitle(value: string) {
   return `${year} 年 ${month} 月`
 }
 
+function formatFinanceTrendRatio(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return '暂无基线'
+  return formatRatio(value)
+}
+
+function buildTooltipMarker(color: string) {
+  return `<span style="display:inline-block;margin-right:6px;border-radius:999px;width:10px;height:10px;background:${color};"></span>`
+}
+
 function truncateLabel(value: string, maxLength: number) {
   if (value.length <= maxLength) return value
   return `${value.slice(0, maxLength)}…`
@@ -1649,7 +1826,7 @@ function toNumber(value: number | string | undefined | null) {
           </div>
 
           <template v-else-if="financeState.data">
-            <!-- 顶区：4 KPI卡片 -->
+            <!-- 顶区：KPI卡片 -->
             <section class="signal-grid-top">
               <article class="signal-card signal-card--finance-structure ds-card">
                 <span class="signal-label">Top3 收入占比</span>
@@ -1690,10 +1867,28 @@ function toNumber(value: number | string | undefined | null) {
 
             <!-- 中区：全宽趋势大图 -->
             <article class="panel-card ds-card panel-card--full panel-card--wide panel-card--finance-trend dashboard-spacer">
-              <div class="panel-header">
+              <div class="panel-header panel-header--trend">
                 <div>
-                  <h3>月度收入、支出与利润趋势</h3>
-                  <p>第二层看经营压力是短期波动，还是已经沿着时间线持续抬升。</p>
+                  <h3>{{ financeTrendPanelTitle }}</h3>
+                  <p>{{ financeTrendPanelDescription }}</p>
+                </div>
+                <div
+                  v-if="financeState.data.monthlyTrend.length"
+                  class="chart-view-switch"
+                  role="tablist"
+                  aria-label="财务趋势图视图切换"
+                >
+                  <button
+                    v-for="option in financeTrendModeOptions"
+                    :key="option.value"
+                    type="button"
+                    class="chart-view-switch__button"
+                    :class="{ 'is-active': financeTrendMode === option.value }"
+                    :aria-pressed="financeTrendMode === option.value"
+                    @click="financeTrendMode = option.value"
+                  >
+                    {{ option.label }}
+                  </button>
                 </div>
               </div>
               <div
@@ -1703,11 +1898,11 @@ function toNumber(value: number | string | undefined | null) {
               />
               <div v-else class="panel-empty panel-empty--compact">
                 <h4>暂无月度趋势</h4>
-                <p>当前范围内还没有形成可读的收入、支出与利润序列。</p>
+                <p>{{ financeTrendEmptyDescription }}</p>
               </div>
             </article>
 
-            <!-- 底部：双列对称并排 -->
+            <!-- 底部：双列并排 -->
             <section class="dashboard-secondary-grid">
               <article class="panel-card ds-card panel-card--secondary">
                 <div class="panel-header panel-header--feature">
@@ -1786,7 +1981,7 @@ function toNumber(value: number | string | undefined | null) {
           </div>
 
           <template v-else-if="hrState.data">
-            <!-- 顶区：4 KPI卡片 -->
+            <!-- 顶区：KPI卡片 -->
             <section class="signal-grid-top">
               <article class="signal-card ds-card signal-card--hr-size">
                 <span class="signal-label">当前在职人数</span>
@@ -1846,7 +2041,7 @@ function toNumber(value: number | string | undefined | null) {
               <article class="panel-card ds-card panel-card--secondary panel-card--hr-balance">
                 <div class="panel-header">
                   <div>
-                    <h3>部门人数与均薪对比</h3>
+                    <h3>部门人数与人均薪资对比</h3>
                     <p>把体量和单价放在一起看，到底是人数更大，还是单价更高。</p>
                   </div>
                 </div>
@@ -1912,7 +2107,7 @@ function toNumber(value: number | string | undefined | null) {
           </div>
 
           <template v-else-if="taxState.data">
-            <!-- 顶区：4 KPI卡片 -->
+            <!-- 顶区：KPI卡片 -->
             <section class="signal-grid-top">
               <article class="signal-card signal-card--tax-rate ds-card">
                 <span class="signal-label">当前税负率</span>
@@ -1960,7 +2155,7 @@ function toNumber(value: number | string | undefined | null) {
                     </p>
                   </div>
                   <div class="panel-metric-stack">
-                    <div class="panel-metric" :class="`is-${taxBurdenTone}`">
+                    <div class="panel-metric" :class="'is-' + taxBurdenTone">
                       <span>当前税负率</span>
                       <strong>{{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}</strong>
                     </div>
@@ -1984,7 +2179,7 @@ function toNumber(value: number | string | undefined | null) {
                   <div class="panel-header">
                     <div>
                       <h3>税种结构排序</h3>
-                      <p>确认压力主要来自哪里，退税暂不入结构统算。</p>
+                      <p>确认压力主要来自哪里，退税暂不纳入结构统计。</p>
                     </div>
                     <div class="panel-metric panel-metric--tax-structure" :class="taxTopTaxType ? 'is-warning' : ''">
                       <span>{{ taxTopTaxType ? taxTopTaxType.taxType : '暂无结构' }}</span>
@@ -2007,7 +2202,7 @@ function toNumber(value: number | string | undefined | null) {
                   <div class="panel-header">
                     <div>
                       <h3>缴情状态组成</h3>
-                      <p>先判断风险是金额问题，还是待缴记录开始堆积。</p>
+                      <p>先判断风险是金额问题，还是待缴情记录开始堆积。</p>
                     </div>
                     <span class="status-overview__count">{{ formatCount(taxStatusTotalCount) }} 笔</span>
                   </div>
@@ -2016,16 +2211,16 @@ function toNumber(value: number | string | undefined | null) {
                     <div class="status-composition__track">
                       <span
                         v-for="item in taxStatusBreakdown"
-                        :key="`status-segment-${item.status}`"
+                        :key="'status-segment-' + item.status"
                         class="status-composition__segment"
                         :class="getTaxStatusClass(item.status)"
-                        :style="{ width: `${item.ratio * 100}%` }"
+                        :style="{ width: item.ratio * 100 + '%' }"
                       />
                     </div>
                     <div class="status-composition__legend">
                       <div
                         v-for="item in taxStatusBreakdown"
-                        :key="`status-legend-${item.status}`"
+                        :key="'status-legend-' + item.status"
                         class="status-legend-item"
                       >
                         <span class="status-dot" :class="getTaxStatusClass(item.status)" />
@@ -2147,7 +2342,7 @@ function toNumber(value: number | string | undefined | null) {
                 <p>
                   {{
                     hrTopDepartment
-                      ? `${hrTopDepartment.department} 当前承担最多基础薪资负担。`
+                      ? hrTopDepartment.department + ' 当前承担最多基础薪资负担。'
                       : '等待部门结构形成后再判断负担重心。'
                   }}
                 </p>
@@ -2220,9 +2415,9 @@ function toNumber(value: number | string | undefined | null) {
               </div>
 
               <div class="gauge-notes">
-                <div class="note-chip tone-healthy">0%-10% 稳定区</div>
-                <div class="note-chip tone-warning">10%-20% 关注区</div>
-                <div class="note-chip tone-danger">20%+ 高压区</div>
+                <div class="note-chip tone-healthy">0%-10% 观察线</div>
+                <div class="note-chip tone-warning">10%-20% 关注线</div>
+                <div class="note-chip tone-danger">20%+ 高压线</div>
               </div>
             </article>
           </template>
@@ -2252,8 +2447,8 @@ function toNumber(value: number | string | undefined | null) {
             <article class="pdf-card ds-card">
               <div class="panel-header">
                 <div>
-                  <h3>月度收入、支出与利润趋势</h3>
-                  <p>用时间线确认利润压力是短期波动，还是已经形成趋势。</p>
+                  <h3>{{ financeTrendPanelTitle }}</h3>
+                  <p>{{ financeTrendPanelDescription }}</p>
                 </div>
               </div>
 
@@ -2262,7 +2457,7 @@ function toNumber(value: number | string | undefined | null) {
               </div>
               <div v-else class="panel-empty compact">
                 <h4>暂无月度趋势</h4>
-                <p>当前范围内还没有形成可读的收入、支出与利润序列。</p>
+                <p>{{ financeTrendEmptyDescription }}</p>
               </div>
             </article>
 
@@ -2287,45 +2482,45 @@ function toNumber(value: number | string | undefined | null) {
 
         <template v-else-if="activeTab === 'hr' && hrState.data">
           <article class="pdf-card ds-card">
-            <div class="panel-header">
-              <div>
-                <h3>部门人数与人均基础薪资</h3>
-                <p>第二层把部门体量与人均单价放在一起看，判断成本究竟由规模还是岗位单价驱动。</p>
+              <div class="panel-header">
+                <div>
+                  <h3>部门人数与人均基础薪资</h3>
+                  <p>第二层把部门体量与人均单价放在一起看，判断成本究竟由规模还是岗位单价驱动。</p>
+                </div>
               </div>
-            </div>
 
-            <div v-if="exportChartImages.hrTrend" class="pdf-chart-frame">
-              <img :src="exportChartImages.hrTrend" alt="部门人数与人均基础薪资图" class="pdf-chart-image" />
-            </div>
-            <div v-else class="panel-empty compact">
-              <h4>暂无部门对比</h4>
-              <p>当前没有足够的部门数据可用于比较人数和人均薪资。</p>
-            </div>
+              <div v-if="exportChartImages.hrTrend" class="pdf-chart-frame">
+                <img :src="exportChartImages.hrTrend" alt="部门人数与人均基础薪资图" class="pdf-chart-image" />
+              </div>
+              <div v-else class="panel-empty compact">
+                <h4>暂无部门对比</h4>
+                <p>当前没有足够的部门数据可用于比较人数和人均薪资。</p>
+              </div>
           </article>
         </template>
 
         <template v-else-if="taxState.data">
           <article class="pdf-card ds-card">
-            <div class="panel-header">
-              <div>
-                <h3>税种结构</h3>
-                <p>负数退税不进入结构分布，但会保留在下方状态摘要金额里。</p>
+              <div class="panel-header">
+                <div>
+                  <h3>税种结构</h3>
+                  <p>负数退税不进入结构分布，但会保留在下方状态摘要金额里。</p>
+                </div>
               </div>
-            </div>
 
-            <div v-if="exportChartImages.taxType" class="pdf-chart-frame">
-              <img :src="exportChartImages.taxType" alt="税种结构图" class="pdf-chart-image" />
-            </div>
-            <div v-else class="panel-empty compact">
-              <h4>暂无税种结构</h4>
-              <p>当前范围内没有正向税额。</p>
-            </div>
+              <div v-if="exportChartImages.taxType" class="pdf-chart-frame">
+                <img :src="exportChartImages.taxType" alt="税种结构图" class="pdf-chart-image" />
+              </div>
+              <div v-else class="panel-empty compact">
+                <h4>暂无税种结构</h4>
+                <p>当前范围内没有正向税额。</p>
+              </div>
           </article>
 
           <section class="pdf-status-grid">
             <article
               v-for="item in taxState.data.statusSummary"
-              :key="`pdf-${item.status}`"
+              :key="'pdf-' + item.status"
               class="status-card ds-card"
               :class="getTaxStatusClass(item.status)"
             >
@@ -2966,6 +3161,11 @@ function toNumber(value: number | string | undefined | null) {
   align-items: flex-start;
 }
 
+.panel-header--trend {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
 .panel-kicker {
   display: inline-flex;
   margin-bottom: 8px;
@@ -2988,6 +3188,46 @@ function toNumber(value: number | string | undefined | null) {
   font-size: 13px;
   line-height: 1.7;
   color: #615d59;
+}
+
+.chart-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(246, 245, 244, 0.92);
+  flex-shrink: 0;
+}
+
+.chart-view-switch__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: #615d59;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.chart-view-switch__button:hover {
+  color: #213183;
+}
+
+.chart-view-switch__button.is-active {
+  color: #213183;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
 .panel-inline-note {
@@ -3575,6 +3815,14 @@ function toNumber(value: number | string | undefined | null) {
 
   .panel-metric {
     align-items: flex-start;
+  }
+
+  .chart-view-switch {
+    width: 100%;
+  }
+
+  .chart-view-switch__button {
+    flex: 1;
   }
 }
 

@@ -388,6 +388,31 @@ function renderTrendChart() {
       borderWidth: 1,
       textStyle: { color: 'rgba(0,0,0,0.85)' },
       extraCssText: 'box-shadow: rgba(0,0,0,0.08) 0 12px 36px; border-radius: 12px;',
+      position(
+        point: [number, number],
+        _params: unknown,
+        _dom: HTMLElement,
+        _rect: unknown,
+        size: { contentSize: [number, number]; viewSize: [number, number] },
+      ) {
+        const [x, y] = point
+        const [contentWidth, contentHeight] = size.contentSize
+        const [viewWidth, viewHeight] = size.viewSize
+        const minLeft = 12
+        const maxLeft = Math.max(viewWidth - contentWidth - 12, minLeft)
+        const minTop = 12
+        const maxTop = Math.max(viewHeight - contentHeight - 12, minTop)
+        let left = x + 18
+
+        if (left > maxLeft) {
+          left = Math.max(x - contentWidth - 18, minLeft)
+        }
+
+        return [
+          left,
+          Math.min(Math.max(y - contentHeight / 2, minTop), maxTop),
+        ]
+      },
       formatter(params: Array<{ axisValue: string; marker: string; seriesName: string; value: number }>) {
         const title = formatMonthTitle(params[0]?.axisValue || '')
         const lines = params.map((item) =>
@@ -2214,6 +2239,10 @@ function toNumber(value: number | string | undefined | null) {
     min-height: 224px;
   }
 
+  .department-chart {
+    min-height: 224px;
+  }
+
   .timeline-scroll {
     min-height: 0;
     max-height: none;
@@ -2238,6 +2267,10 @@ function toNumber(value: number | string | undefined | null) {
   }
 
   .trend-chart {
+    min-height: 208px;
+  }
+
+  .department-chart {
     min-height: 208px;
   }
 
