@@ -238,6 +238,26 @@ const taxBurdenTone = computed(() => {
   return 'healthy'
 })
 
+const taxGaugeHasBaseline = computed(() => toNumber(taxState.data?.incomeBase) > 0)
+
+const taxGaugeSummaryTone = computed(() => (taxGaugeHasBaseline.value ? taxBurdenTone.value : 'muted'))
+
+const taxGaugeSummaryValue = computed(() => {
+  if (!taxGaugeHasBaseline.value) return '暂无基线'
+  if (taxBurdenTone.value === 'danger') return '高压区'
+  if (taxBurdenTone.value === 'warning') return '关注区'
+  return '低压区'
+})
+
+const taxGaugeSummaryNote = computed(() => {
+  if (!taxGaugeHasBaseline.value) return '等待正向收入基线'
+  if (taxBurdenTone.value === 'danger') return '超过 20% 高压线'
+  if (taxBurdenTone.value === 'warning') return '进入 10%-20% 关注线'
+  return '低于 10% 观察线'
+})
+
+const taxGaugeSummaryTitle = computed(() => `风险判断 ${taxGaugeSummaryValue.value} · ${taxGaugeSummaryNote.value}`)
+
 const currentMethodologyNote = computed(() => {
   if (activeTab.value === 'finance') {
     return '财务按范围聚合，先看收入集中度，再看收支规模与利润率。'
@@ -1492,6 +1512,14 @@ function renderTaxGaugeChart(data: TaxDashboardVO) {
 
   const ratePercent = Number((toNumber(data.taxBurdenRate) * 100).toFixed(1))
   const displayRatePercent = Math.min(ratePercent, 30)
+  const hasIncomeBase = toNumber(data.incomeBase) > 0
+  const progressColor = hasIncomeBase
+    ? ratePercent >= 20
+      ? '#e03e3e'
+      : ratePercent >= 10
+        ? '#dd5b00'
+        : '#1aae39'
+    : '#a39e98'
 
   setChartOption('tax-gauge', taxGaugeChartRef.value, {
     series: [
@@ -1501,53 +1529,58 @@ function renderTaxGaugeChart(data: TaxDashboardVO) {
         endAngle: -30,
         min: 0,
         max: 30,
-        splitNumber: 6,
+        splitNumber: 3,
         progress: {
-          show: true,
-          width: 14,
+          show: hasIncomeBase,
+          width: 18,
           roundCap: true,
+          itemStyle: { color: progressColor },
         },
         axisLine: {
           lineStyle: {
-            width: 14,
+            width: 18,
             color: [
-              [10 / 30, '#1aae39'],
-              [20 / 30, '#dd5b00'],
-              [1, '#e03e3e'],
+              [10 / 30, 'rgba(26, 174, 57, 0.18)'],
+              [20 / 30, 'rgba(221, 91, 0, 0.16)'],
+              [1, 'rgba(224, 62, 62, 0.16)'],
             ],
           },
         },
-        pointer: {
-          icon: 'path://M6 0 L-6 0 L0 82 z',
-          length: '58%',
-          width: 10,
-          itemStyle: { color: '#213183' },
+        pointer: { show: false },
+        axisTick: { show: false },
+        splitLine: {
+          distance: -22,
+          length: 16,
+          lineStyle: {
+            color: 'rgba(255,255,255,0.96)',
+            width: 3,
+          },
         },
-        axisTick: { distance: -20, splitNumber: 5, lineStyle: { color: '#ffffff', width: 1 } },
-        splitLine: { distance: -20, length: 12, lineStyle: { color: '#ffffff', width: 2 } },
         axisLabel: {
-          distance: -34,
+          distance: 8,
           color: '#615d59',
-          fontSize: 11,
-          formatter: (value: number) => `${value}%`,
+          fontSize: 12,
+          fontWeight: 500,
+          formatter: (value: number) => ([0, 10, 20, 30].includes(value) ? `${value}%` : ''),
         },
         detail: {
           valueAnimation: true,
-          offsetCenter: [0, '52%'],
-          formatter: () => `${ratePercent.toFixed(1)}%`,
+          offsetCenter: [0, '46%'],
+          formatter: () => (hasIncomeBase ? `${ratePercent.toFixed(1)}%` : '—'),
           color: 'rgba(0,0,0,0.95)',
-          fontSize: 30,
+          fontSize: 34,
           fontWeight: 700,
         },
         title: {
-          offsetCenter: [0, '76%'],
+          offsetCenter: [0, '64%'],
           color: '#615d59',
           fontSize: 13,
+          fontWeight: 500,
         },
         data: [
           {
             value: displayRatePercent,
-            name: toNumber(data.incomeBase) > 0 ? '当前税负率' : '暂无收入基线',
+            name: hasIncomeBase ? '当前税负率' : '暂无收入基线',
           },
         ],
       },
@@ -2276,11 +2309,15 @@ function toNumber(value: number | string | undefined | null) {
                       用正向税额对正向收入基线，判断税负强度。
                     </p>
                   </div>
-                  <div class="panel-metric-stack">
-                    <div class="panel-metric" :class="'is-' + taxBurdenTone">
-                      <span>当前税负率</span>
-                      <strong>{{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}</strong>
-                    </div>
+                  <div
+                    class="panel-inline-metric panel-inline-metric--tax"
+                    :class="`is-${taxGaugeSummaryTone}`"
+                    :title="taxGaugeSummaryTitle"
+                  >
+                    <span class="panel-inline-metric__label">风险判断</span>
+                    <span class="panel-inline-metric__entity">{{ taxGaugeSummaryValue }}</span>
+                    <span class="panel-inline-metric__divider" aria-hidden="true">·</span>
+                    <span class="panel-inline-metric__note">{{ taxGaugeSummaryNote }}</span>
                   </div>
                 </div>
                 <!-- 注入 flex-grow 以拉伸吸收右边可能造成的高落差 -->
@@ -3423,6 +3460,11 @@ function toNumber(value: number | string | undefined | null) {
   white-space: nowrap;
 }
 
+.panel-inline-metric--tax {
+  max-width: min(100%, 340px);
+  min-width: 0;
+}
+
 .panel-inline-metric.is-calm {
   border-color: rgba(42, 157, 153, 0.12);
   background: rgba(247, 252, 251, 0.88);
@@ -3454,6 +3496,28 @@ function toNumber(value: number | string | undefined | null) {
 .panel-inline-metric.is-warning .panel-inline-metric__entity,
 .panel-inline-metric.is-warning .panel-inline-metric__note {
   color: #dd5b00;
+}
+
+.panel-inline-metric.is-healthy {
+  border-color: rgba(26, 174, 57, 0.14);
+  background: rgba(247, 252, 251, 0.9);
+}
+
+.panel-inline-metric.is-healthy strong,
+.panel-inline-metric.is-healthy .panel-inline-metric__entity,
+.panel-inline-metric.is-healthy .panel-inline-metric__note {
+  color: #1aae39;
+}
+
+.panel-inline-metric.is-danger {
+  border-color: rgba(224, 62, 62, 0.16);
+  background: rgba(254, 247, 247, 0.94);
+}
+
+.panel-inline-metric.is-danger strong,
+.panel-inline-metric.is-danger .panel-inline-metric__entity,
+.panel-inline-metric.is-danger .panel-inline-metric__note {
+  color: #e03e3e;
 }
 
 .panel-inline-metric.is-muted {
@@ -3566,6 +3630,13 @@ function toNumber(value: number | string | undefined | null) {
 
 .chart-box--gauge {
   height: 360px;
+}
+
+.chart-box--tax-gauge {
+  background:
+    radial-gradient(circle at 50% 100%, rgba(0, 117, 222, 0.06), transparent 42%),
+    linear-gradient(180deg, rgba(248, 250, 255, 0.98), rgba(255, 255, 255, 0.94));
+  border-color: rgba(0, 117, 222, 0.08);
 }
 
 .panel-empty {
@@ -3803,6 +3874,16 @@ function toNumber(value: number | string | undefined | null) {
   flex-wrap: wrap;
 }
 
+.gauge-notes--tax {
+  margin-top: 14px;
+  gap: 8px;
+}
+
+.gauge-notes--tax .note-chip {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
 .note-chip {
   display: inline-flex;
   align-items: center;
@@ -3825,6 +3906,13 @@ function toNumber(value: number | string | undefined | null) {
 .tone-danger {
   color: #e03e3e;
   background: rgba(224, 62, 62, 0.12);
+}
+
+.gauge-disclaimer {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #615d59;
 }
 
 .feature-caption {
