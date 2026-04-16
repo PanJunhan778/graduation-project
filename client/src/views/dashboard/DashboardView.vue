@@ -265,6 +265,26 @@ const financeTop3Share = computed(() => toNumber(financeState.data?.incomeConcen
 
 const financeSourceCount = computed(() => toNumber(financeState.data?.incomeConcentration?.sourceCount))
 
+const financeTop1Tone = computed(() => {
+  if (!financeState.data || financeSourceCount.value <= 0) return 'muted'
+  if (financeTop1Share.value >= 0.5) return 'warning'
+  if (financeTop1Share.value >= 0.3) return 'focus'
+  return 'calm'
+})
+
+const financeTop1Note = computed(() => {
+  if (!financeState.data || financeSourceCount.value <= 0) {
+    return '等待来源形成'
+  }
+  if (financeTop1Share.value >= 0.5) {
+    return '单一来源依赖偏高'
+  }
+  if (financeTop1Share.value >= 0.3) {
+    return '核心来源需要持续盯住'
+  }
+  return '依赖较分散'
+})
+
 const financeProfitChange = computed(() => toNumber(financeState.data?.periodComparison?.profitChange))
 
 const financeComparisonTone = computed(() => {
@@ -355,9 +375,23 @@ const hrDepartmentInsights = computed<HrDepartmentInsight[]>(() => {
   return getHrDepartmentInsights(hrState.data)
 })
 
-const hrDepartmentCount = computed(() => hrDepartmentInsights.value.length)
-
 const hrTopDepartment = computed(() => hrDepartmentInsights.value[0] ?? null)
+
+const hrDepartmentSummaryTone = computed(() => {
+  const ratio = toNumber(hrTopDepartment.value?.ratio)
+  if (!hrTopDepartment.value) return 'muted'
+  if (ratio >= 0.25) return 'warning'
+  if (ratio >= 0.15) return 'focus'
+  return 'calm'
+})
+
+const hrDepartmentSummaryDepartment = computed(() => hrTopDepartment.value?.department || '等待部门形成')
+
+const hrDepartmentSummaryTitle = computed(() =>
+  hrTopDepartment.value
+    ? `压力集中在 ${hrTopDepartment.value.department} · ${formatRatio(hrTopDepartment.value.ratio)}`
+    : '等待部门形成',
+)
 
 const taxUnpaidRatio = computed(() => {
   const positiveTaxAmount = toNumber(taxState.data?.positiveTaxAmount)
@@ -772,6 +806,15 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
   const cumulativeTailName = '累计补齐'
   const hasOtherBucket = items.at(-1)?.name === '其他来源' && items.length >= 2
   const mainLineData = hasOtherBucket ? [...cumulativeRatios.slice(0, -1), null] : [...cumulativeRatios]
+  const topSourceEndIndex = hasOtherBucket ? items.length - 1 : items.length
+  const topSourceIndex = items
+    .slice(0, topSourceEndIndex)
+    .reduce((bestIndex, currentItem, currentIndex, sourceItems) => {
+      if (!sourceItems[bestIndex] || currentItem.amount > sourceItems[bestIndex].amount) {
+        return currentIndex
+      }
+      return bestIndex
+    }, 0)
   const tailLineData = items.map<null | { value: number; symbolSize?: number; itemStyle?: { color: string } }>((_, index) => {
     if (!hasOtherBucket) return null
     const tailStartIndex = items.length - 2
@@ -874,18 +917,54 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
         type: 'bar',
         barWidth: 24,
         borderRadius: [12, 12, 0, 0],
-        itemStyle: {
-          color: '#1375d1',
-          shadowColor: 'rgba(19, 117, 209, 0.25)',
-          shadowBlur: 20,
-          shadowOffsetY: 12,
-        },
-        data: items.map((item) => item.amount),
+        data: items.map((item, index) => ({
+          value: item.amount,
+          itemStyle:
+            index === topSourceIndex
+              ? {
+                  color: '#0f6cc8',
+                  shadowColor: 'rgba(19, 117, 209, 0.32)',
+                  shadowBlur: 22,
+                  shadowOffsetY: 12,
+                }
+              : hasOtherBucket && index === items.length - 1
+                ? {
+                    color: 'rgba(19, 117, 209, 0.76)',
+                    shadowColor: 'rgba(19, 117, 209, 0.16)',
+                    shadowBlur: 16,
+                    shadowOffsetY: 10,
+                  }
+                : {
+                    color: '#1375d1',
+                    shadowColor: 'rgba(19, 117, 209, 0.22)',
+                    shadowBlur: 18,
+                    shadowOffsetY: 10,
+                  },
+        })),
         label: {
           show: true,
           position: 'top',
-          color: '#615d59',
-          formatter: (params: { value: number }) => formatShortCurrency(params.value),
+          formatter: (params: { value: number; dataIndex: number }) =>
+            params.dataIndex === topSourceIndex
+              ? `{top1|第一来源}\n{amount|${formatShortCurrency(params.value)}}`
+              : `{amount|${formatShortCurrency(params.value)}}`,
+          rich: {
+            top1: {
+              color: '#0f6cc8',
+              fontSize: 11,
+              fontWeight: 600,
+              padding: [4, 8],
+              borderRadius: 999,
+              backgroundColor: 'rgba(19, 117, 209, 0.10)',
+              lineHeight: 22,
+            },
+            amount: {
+              color: '#615d59',
+              fontSize: 13,
+              fontWeight: 500,
+              lineHeight: 18,
+            },
+          },
         },
       },
       {
@@ -901,11 +980,20 @@ function renderFinanceIncomeChart(data: FinanceDashboardVO) {
         label: {
           show: true,
           position: 'top',
-          color: '#213183',
           formatter: (params: { dataIndex: number; value: number }) =>
             params.dataIndex === highlightIndex
-              ? `Top${highlightCount} ${formatRatio(cumulativeRatios[params.dataIndex])}`
+              ? `{summary|前三累计 ${formatRatio(cumulativeRatios[params.dataIndex])}}`
               : '',
+          rich: {
+            summary: {
+              color: 'rgba(33, 49, 131, 0.82)',
+              fontSize: 11,
+              fontWeight: 600,
+              padding: [4, 8],
+              borderRadius: 999,
+              backgroundColor: 'rgba(33, 49, 131, 0.08)',
+            },
+          },
         },
       },
       ...(hasOtherBucket
@@ -1178,11 +1266,14 @@ function getHrDepartmentInsights(data: HrDashboardVO): HrDepartmentInsight[] {
 }
 
 function renderHrDepartmentChart(data: HrDashboardVO) {
-  const items = getHrDepartmentInsights(data).slice().reverse()
+  const rankedItems = getHrDepartmentInsights(data)
+  const items = rankedItems.slice().reverse()
   if (!hrDepartmentChartRef.value || !items.length) {
     disposeChart('hr-department')
     return
   }
+  const topDepartment = rankedItems[0] ?? null
+  const topDepartmentIndex = topDepartment ? items.findIndex((item) => item.department === topDepartment.department) : -1
 
   setChartOption('hr-department', hrDepartmentChartRef.value, {
     color: ['#1375d1'],
@@ -1202,7 +1293,7 @@ function renderHrDepartmentChart(data: HrDashboardVO) {
     grid: {
       top: 14,
       left: 12,
-      right: 18,
+      right: 104,
       bottom: 12,
       containLabel: true,
     },
@@ -1229,21 +1320,47 @@ function renderHrDepartmentChart(data: HrDashboardVO) {
         type: 'bar',
         barWidth: 18,
         borderRadius: [9, 9, 9, 9],
-        itemStyle: {
-          color: '#1375d1',
-          shadowColor: 'rgba(19, 117, 209, 0.18)',
-          shadowBlur: 18,
-          shadowOffsetY: 10,
-        },
         label: {
           show: true,
           position: 'right',
-          color: '#615d59',
-          formatter: (params: { value: number; data: HrDepartmentInsight }) =>
-            `${formatShortCurrency(params.value)} · ${formatRatio(params.data.ratio)}`,
+          formatter: (params: { value: number; data: HrDepartmentInsight; dataIndex: number }) =>
+            params.dataIndex === topDepartmentIndex
+              ? `{flag|第一负担部门}\n{value|${formatShortCurrency(params.value)} · ${formatRatio(params.data.ratio)}}`
+              : `{value|${formatShortCurrency(params.value)} · ${formatRatio(params.data.ratio)}}`,
+          rich: {
+            flag: {
+              color: '#0f6cc8',
+              fontSize: 11,
+              fontWeight: 600,
+              padding: [4, 8],
+              borderRadius: 999,
+              backgroundColor: 'rgba(19, 117, 209, 0.10)',
+              lineHeight: 22,
+            },
+            value: {
+              color: '#615d59',
+              fontSize: 13,
+              fontWeight: 500,
+              lineHeight: 18,
+            },
+          },
         },
-        data: items.map((item) => ({
+        data: items.map((item, index) => ({
           value: item.salaryAmount,
+          itemStyle:
+            index === topDepartmentIndex
+              ? {
+                  color: '#0f6cc8',
+                  shadowColor: 'rgba(19, 117, 209, 0.28)',
+                  shadowBlur: 20,
+                  shadowOffsetY: 10,
+                }
+              : {
+                  color: '#1375d1',
+                  shadowColor: 'rgba(19, 117, 209, 0.18)',
+                  shadowBlur: 18,
+                  shadowOffsetY: 10,
+                },
           ...item,
         })),
       },
@@ -1910,9 +2027,11 @@ function toNumber(value: number | string | undefined | null) {
                     <h3>收入集中度</h3>
                     <p>{{ financeConcentrationHeadline }}</p>
                   </div>
-                  <div class="panel-metric" :class="financeTop1Share >= 0.5 ? 'is-warning' : 'is-income'">
-                    <span>Top1 收入占比</span>
+                  <div class="panel-inline-metric" :class="`is-${financeTop1Tone}`">
+                    <span class="panel-inline-metric__label">Top1 占比</span>
                     <strong>{{ financeSourceCount > 0 ? formatRatio(financeTop1Share) : '—' }}</strong>
+                    <span v-if="financeSourceCount > 0" class="panel-inline-metric__divider" aria-hidden="true">·</span>
+                    <span class="panel-inline-metric__note">{{ financeTop1Note }}</span>
                   </div>
                 </div>
                 <div
@@ -2016,9 +2135,17 @@ function toNumber(value: number | string | undefined | null) {
                     <h3>部门薪资负担排序</h3>
                     <p>先看当前基础薪资主要压在哪些部门，再判断人力成本是否集中。</p>
                   </div>
-                  <div class="panel-metric">
-                    <span>覆盖部门数</span>
-                    <strong>{{ formatCount(hrDepartmentCount) }}</strong>
+                  <div
+                    class="panel-inline-metric panel-inline-metric--hr"
+                    :class="`is-${hrDepartmentSummaryTone}`"
+                    :title="hrDepartmentSummaryTitle"
+                  >
+                    <span class="panel-inline-metric__label">压力集中在</span>
+                    <span class="panel-inline-metric__entity">{{ hrDepartmentSummaryDepartment }}</span>
+                    <template v-if="hrTopDepartment">
+                      <span class="panel-inline-metric__divider" aria-hidden="true">·</span>
+                      <strong>{{ formatRatio(hrTopDepartment.ratio) }}</strong>
+                    </template>
                   </div>
                 </div>
 
@@ -2031,11 +2158,6 @@ function toNumber(value: number | string | undefined | null) {
                   <h4>暂无团队结构</h4>
                   <p>当前没有可用于聚合的在职员工。</p>
                 </div>
-                <p v-if="hrTopDepartment" class="feature-caption">
-                  当前负担最重的部门是 {{ hrTopDepartment.department }}，承担了
-                  {{ formatRatio(hrTopDepartment.ratio) }} 的基础薪资，总计
-                  {{ formatCount(hrTopDepartment.employeeCount) }} 人。
-                </p>
               </article>
 
               <article class="panel-card ds-card panel-card--secondary panel-card--hr-balance">
@@ -3240,6 +3362,104 @@ function toNumber(value: number | string | undefined | null) {
   font-weight: 600;
 }
 
+.panel-inline-metric {
+  flex-shrink: 0;
+  max-width: min(100%, 320px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(246, 245, 244, 0.76);
+}
+
+.panel-inline-metric__label,
+.panel-inline-metric__entity,
+.panel-inline-metric__note,
+.panel-inline-metric__divider {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.panel-inline-metric__label {
+  font-weight: 600;
+  color: #615d59;
+}
+
+.panel-inline-metric strong {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.25px;
+  color: rgba(0, 0, 0, 0.95);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-inline-metric__entity {
+  min-width: 0;
+  font-weight: 600;
+  color: #615d59;
+}
+
+.panel-inline-metric__divider {
+  color: rgba(97, 93, 89, 0.58);
+}
+
+.panel-inline-metric__note {
+  color: #615d59;
+}
+
+.panel-inline-metric--hr {
+  max-width: min(100%, 360px);
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.panel-inline-metric--hr .panel-inline-metric__entity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-inline-metric.is-calm {
+  border-color: rgba(42, 157, 153, 0.12);
+  background: rgba(247, 252, 251, 0.88);
+}
+
+.panel-inline-metric.is-calm strong,
+.panel-inline-metric.is-calm .panel-inline-metric__entity,
+.panel-inline-metric.is-calm .panel-inline-metric__note {
+  color: #2a9d99;
+}
+
+.panel-inline-metric.is-focus {
+  border-color: rgba(19, 117, 209, 0.12);
+  background: rgba(248, 252, 255, 0.9);
+}
+
+.panel-inline-metric.is-focus strong,
+.panel-inline-metric.is-focus .panel-inline-metric__entity,
+.panel-inline-metric.is-focus .panel-inline-metric__note {
+  color: #1375d1;
+}
+
+.panel-inline-metric.is-warning {
+  border-color: rgba(221, 91, 0, 0.14);
+  background: rgba(255, 251, 247, 0.92);
+}
+
+.panel-inline-metric.is-warning strong,
+.panel-inline-metric.is-warning .panel-inline-metric__entity,
+.panel-inline-metric.is-warning .panel-inline-metric__note {
+  color: #dd5b00;
+}
+
+.panel-inline-metric.is-muted {
+  color: #615d59;
+}
+
 .panel-metric {
   min-width: 152px;
   padding: 12px 14px;
@@ -3817,6 +4037,11 @@ function toNumber(value: number | string | undefined | null) {
     align-items: flex-start;
   }
 
+  .panel-inline-metric {
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+
   .chart-view-switch {
     width: 100%;
   }
@@ -3851,6 +4076,11 @@ function toNumber(value: number | string | undefined | null) {
   .toolbar-actions {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .panel-inline-metric {
+    border-radius: 16px;
+    padding: 10px 12px;
   }
 
   .range-select {
