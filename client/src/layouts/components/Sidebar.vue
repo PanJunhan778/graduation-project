@@ -148,9 +148,9 @@ function getRoleName(role?: string) {
 <template>
   <aside class="sidebar" :class="{ collapsed: props.collapsed }">
     <div class="sidebar-header">
-      <div class="brand-mark">{{ props.collapsed ? 'E' : 'EMS' }}</div>
+      <div class="brand-mark">{{ props.collapsed ? 'E' : 'ERP' }}</div>
       <div v-if="!props.collapsed" class="brand-copy">
-        <strong>Enterprise Cockpit</strong>
+        <strong>Enterprise Resource Planning</strong>
         <span>智能轻量化企业管理系统</span>
       </div>
     </div>

@@ -90,6 +90,7 @@ export async function exportSectionsToPdf(options: ExportPdfOptions): Promise<st
       const scale = section.fitToPage === false ? 1 : Math.min(1, contentHeight / naturalHeight)
       const renderWidth = naturalWidth * scale
       const renderHeight = naturalHeight * scale
+      const renderX = PDF_MARGIN_MM + Math.max(0, (contentWidth - renderWidth) / 2)
 
       const shouldStartNewPage =
         (hasRendered && section.pageBreakBefore !== false) ||
@@ -100,7 +101,7 @@ export async function exportSectionsToPdf(options: ExportPdfOptions): Promise<st
         currentY = PDF_MARGIN_MM
       }
 
-      pdf.addImage(imageData, 'PNG', PDF_MARGIN_MM, currentY, renderWidth, renderHeight, undefined, 'FAST')
+      pdf.addImage(imageData, 'PNG', renderX, currentY, renderWidth, renderHeight, undefined, 'FAST')
       currentY += renderHeight
       hasRendered = true
     }

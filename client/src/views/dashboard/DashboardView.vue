@@ -258,16 +258,6 @@ const taxGaugeSummaryNote = computed(() => {
 
 const taxGaugeSummaryTitle = computed(() => `风险判断 ${taxGaugeSummaryValue.value} · ${taxGaugeSummaryNote.value}`)
 
-const currentMethodologyNote = computed(() => {
-  if (activeTab.value === 'finance') {
-    return '财务按范围聚合，先看收入集中度，再看收支规模与利润率。'
-  }
-  if (activeTab.value === 'hr') {
-    return '人事页只讲当前在职团队的结构与薪资负担，不把现有名册回推包装成历史快照。'
-  }
-  return '税负率以正向税额对正向收入基线，待缴风险单独显性展示。'
-})
-
 const financeNetSpread = computed(() => {
   if (!financeState.data) return 0
   return toNumber(financeState.data.totalIncome) - toNumber(financeState.data.totalExpense)
@@ -436,6 +426,21 @@ const taxTopTaxTypeShare = computed(() => {
   if (positiveTaxAmount <= 0) return 0
   return toNumber(taxTopTaxType.value?.amount) / positiveTaxAmount
 })
+
+const taxTopTaxTypeTone = computed(() => {
+  if (!taxTopTaxType.value) return 'muted'
+  if (taxTopTaxTypeShare.value >= 0.5) return 'warning'
+  if (taxTopTaxTypeShare.value >= 0.3) return 'focus'
+  return 'calm'
+})
+
+const taxTopTaxTypeSummaryName = computed(() => taxTopTaxType.value?.taxType || '等待结构形成')
+
+const taxTopTaxTypeSummaryTitle = computed(() =>
+  taxTopTaxType.value
+    ? `压力主要来自 ${taxTopTaxType.value.taxType} · ${formatRatio(taxTopTaxTypeShare.value)}`
+    : '等待结构形成',
+)
 
 const taxComparisonTone = computed(() => {
   const comparison = taxState.data?.periodComparison
@@ -1595,6 +1600,11 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
   }
 
   const items = [...data.taxTypeStructure].reverse()
+  const topTaxType = data.taxTypeStructure[0] ?? null
+  const topTaxTypeIndex = topTaxType ? items.findIndex((item) => item.taxType === topTaxType.taxType) : -1
+  const topTaxTypeShareValue = toNumber(topTaxType?.ratio)
+  const topTaxTypeLabelColor = topTaxTypeShareValue >= 0.5 ? '#dd5b00' : '#213183'
+  const topTaxTypeLabelBackground = topTaxTypeShareValue >= 0.5 ? 'rgba(221, 91, 0, 0.10)' : 'rgba(33, 49, 131, 0.08)'
   setChartOption('tax-structure', taxTypeChartRef.value, {
     color: ['#213183'],
     tooltip: {
@@ -1614,7 +1624,7 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
     grid: {
       top: 18,
       left: 12,
-      right: 18,
+      right: 104,
       bottom: 12,
       containLabel: true,
     },
@@ -1641,15 +1651,25 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
         type: 'bar',
         barWidth: 16,
         borderRadius: [8, 8, 8, 8],
-        data: items.map((item) => item.amount),
         label: {
           show: true,
           position: 'right',
           formatter: (params: { value: number; dataIndex: number }) => {
             const currentItem = items[params.dataIndex]
-            return `{amount|${formatShortCurrency(params.value)}}\n{ratio|${formatRatio(toNumber(currentItem?.ratio))}}`
+            return params.dataIndex === topTaxTypeIndex
+              ? `{flag|第一税种}\n{amount|${formatShortCurrency(params.value)}}\n{ratio|${formatRatio(toNumber(currentItem?.ratio))}}`
+              : `{amount|${formatShortCurrency(params.value)}}\n{ratio|${formatRatio(toNumber(currentItem?.ratio))}}`
           },
           rich: {
+            flag: {
+              color: topTaxTypeLabelColor,
+              fontSize: 11,
+              fontWeight: 600,
+              padding: [4, 8],
+              borderRadius: 999,
+              backgroundColor: topTaxTypeLabelBackground,
+              lineHeight: 22,
+            },
             amount: {
               color: '#615d59',
               fontSize: 12,
@@ -1663,6 +1683,30 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
             },
           },
         },
+        data: items.map((item, index) => ({
+          value: item.amount,
+          itemStyle:
+            index === topTaxTypeIndex
+              ? topTaxTypeShareValue >= 0.5
+                ? {
+                    color: '#dd5b00',
+                    shadowColor: 'rgba(221, 91, 0, 0.20)',
+                    shadowBlur: 18,
+                    shadowOffsetY: 8,
+                  }
+                : {
+                    color: '#213183',
+                    shadowColor: 'rgba(33, 49, 131, 0.18)',
+                    shadowBlur: 18,
+                    shadowOffsetY: 8,
+                  }
+              : {
+                  color: 'rgba(33, 49, 131, 0.94)',
+                  shadowColor: 'rgba(33, 49, 131, 0.10)',
+                  shadowBlur: 12,
+                  shadowOffsetY: 6,
+                },
+        })),
       },
     ],
   })
@@ -2340,9 +2384,17 @@ function toNumber(value: number | string | undefined | null) {
                       <h3>税种结构排序</h3>
                       <p>确认压力主要来自哪里，退税暂不纳入结构统计。</p>
                     </div>
-                    <div class="panel-metric panel-metric--tax-structure" :class="taxTopTaxType ? 'is-warning' : ''">
-                      <span>{{ taxTopTaxType ? taxTopTaxType.taxType : '暂无结构' }}</span>
-                      <strong>{{ taxTopTaxType ? formatRatio(taxTopTaxTypeShare) : '—' }}</strong>
+                    <div
+                      class="panel-inline-metric panel-inline-metric--tax-type"
+                      :class="`is-${taxTopTaxTypeTone}`"
+                      :title="taxTopTaxTypeSummaryTitle"
+                    >
+                      <span class="panel-inline-metric__label">压力主要来自</span>
+                      <span class="panel-inline-metric__entity">{{ taxTopTaxTypeSummaryName }}</span>
+                      <template v-if="taxTopTaxType">
+                        <span class="panel-inline-metric__divider" aria-hidden="true">·</span>
+                        <strong>{{ formatRatio(taxTopTaxTypeShare) }}</strong>
+                      </template>
                     </div>
                   </div>
                   <div
@@ -2408,15 +2460,10 @@ function toNumber(value: number | string | undefined | null) {
         </div>
 
         <section class="pdf-hero-card ds-card">
-          <div>
+          <div class="pdf-hero-copy">
             <span class="note-label">图表优先视图</span>
             <h2>{{ activeTabLabel }}</h2>
             <p>当前导出聚焦 {{ activeRangeLabel }} 口径下的主图与关键信号，适合会议汇报与离线阅读。</p>
-          </div>
-          <div class="pdf-hero-note">
-            <span class="note-label">当前口径</span>
-            <strong>{{ currentMethodologyNote }}</strong>
-            <span class="note-subtitle">导出按模块分页，优先保留主图叙事，再补充次级图表与状态卡。</span>
           </div>
         </section>
 
@@ -2592,7 +2639,11 @@ function toNumber(value: number | string | undefined | null) {
         </article>
       </section>
 
-      <section v-if="currentTabHasData" ref="dashboardExportPageTwoRef" class="pdf-page">
+      <section
+        v-if="currentTabHasData"
+        ref="dashboardExportPageTwoRef"
+        :class="['pdf-page', { 'pdf-page--finance-secondary': activeTab === 'finance' && financeState.data }]"
+      >
         <div class="pdf-page-header">
           <div>
             <span class="note-label">续页</span>
@@ -2602,36 +2653,47 @@ function toNumber(value: number | string | undefined | null) {
         </div>
 
         <template v-if="activeTab === 'finance' && financeState.data">
-          <section class="pdf-finance-grid">
-            <article class="pdf-card ds-card">
-              <div class="panel-header">
+          <section class="pdf-finance-stack">
+            <article class="pdf-card ds-card pdf-card--finance-secondary">
+              <div class="panel-header panel-header--pdf-compact">
                 <div>
                   <h3>{{ financeTrendPanelTitle }}</h3>
                   <p>{{ financeTrendPanelDescription }}</p>
                 </div>
               </div>
 
-              <div v-if="exportChartImages.financeTrend" class="pdf-chart-frame">
-                <img :src="exportChartImages.financeTrend" alt="财务月度趋势图" class="pdf-chart-image" />
+              <div v-if="exportChartImages.financeTrend" class="pdf-chart-frame pdf-chart-frame--finance-secondary">
+                <img
+                  :src="exportChartImages.financeTrend"
+                  alt="财务月度趋势图"
+                  class="pdf-chart-image pdf-chart-image--finance-secondary"
+                />
               </div>
-              <div v-else class="panel-empty compact">
+              <div v-else class="panel-empty compact panel-empty--pdf-finance">
                 <h4>暂无月度趋势</h4>
                 <p>{{ financeTrendEmptyDescription }}</p>
               </div>
             </article>
 
-            <article class="pdf-card ds-card">
-              <div class="panel-header">
+            <article class="pdf-card ds-card pdf-card--finance-secondary">
+              <div class="panel-header panel-header--pdf-compact">
                 <div>
                   <h3>支出压力排序</h3>
                   <p>第二层看成本主要压在哪，帮助快速决定先盯住哪一项支出。</p>
                 </div>
               </div>
 
-              <div v-if="exportChartImages.financeExpense" class="pdf-chart-frame">
-                <img :src="exportChartImages.financeExpense" alt="支出压力排序图" class="pdf-chart-image" />
+              <div
+                v-if="exportChartImages.financeExpense"
+                class="pdf-chart-frame pdf-chart-frame--finance-secondary"
+              >
+                <img
+                  :src="exportChartImages.financeExpense"
+                  alt="支出压力排序图"
+                  class="pdf-chart-image pdf-chart-image--finance-secondary"
+                />
               </div>
-              <div v-else class="panel-empty compact">
+              <div v-else class="panel-empty compact panel-empty--pdf-finance">
                 <h4>暂无支出排序</h4>
                 <p>当前范围内没有支出记录。</p>
               </div>
@@ -3465,6 +3527,18 @@ function toNumber(value: number | string | undefined | null) {
   min-width: 0;
 }
 
+.panel-inline-metric--tax-type {
+  max-width: min(100%, 360px);
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.panel-inline-metric--tax-type .panel-inline-metric__entity {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .panel-inline-metric.is-calm {
   border-color: rgba(42, 157, 153, 0.12);
   background: rgba(247, 252, 251, 0.88);
@@ -3637,6 +3711,13 @@ function toNumber(value: number | string | undefined | null) {
     radial-gradient(circle at 50% 100%, rgba(0, 117, 222, 0.06), transparent 42%),
     linear-gradient(180deg, rgba(248, 250, 255, 0.98), rgba(255, 255, 255, 0.94));
   border-color: rgba(0, 117, 222, 0.08);
+}
+
+.chart-box--tax-structure {
+  background:
+    linear-gradient(180deg, rgba(249, 250, 255, 0.98), rgba(255, 255, 255, 0.94)),
+    linear-gradient(90deg, rgba(33, 49, 131, 0.04), transparent 42%);
+  border-color: rgba(33, 49, 131, 0.08);
 }
 
 .panel-empty {
@@ -3988,9 +4069,13 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .pdf-hero-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
-  gap: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pdf-hero-copy {
+  max-width: 58ch;
 }
 
 .pdf-hero-card h2 {
@@ -4008,22 +4093,6 @@ function toNumber(value: number | string | undefined | null) {
   line-height: 1.75;
 }
 
-.pdf-hero-note {
-  border-radius: 18px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(246, 245, 244, 0.7);
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.pdf-hero-note strong {
-  font-size: 16px;
-  color: rgba(0, 0, 0, 0.92);
-  line-height: 1.6;
-}
-
 .pdf-summary-grid,
 .pdf-status-grid {
   display: grid;
@@ -4031,10 +4100,16 @@ function toNumber(value: number | string | undefined | null) {
   gap: 16px;
 }
 
-.pdf-finance-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+.pdf-page--finance-secondary {
   gap: 16px;
+}
+
+.pdf-finance-stack {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
 }
 
 .pdf-status-grid {
@@ -4048,10 +4123,38 @@ function toNumber(value: number | string | undefined | null) {
   gap: 16px;
 }
 
+.pdf-card--finance-secondary {
+  flex: 1;
+  gap: 12px;
+  padding: 24px 26px;
+}
+
+.panel-header--pdf-compact {
+  gap: 10px;
+}
+
+.panel-header--pdf-compact h3 {
+  font-size: 18px;
+}
+
+.panel-header--pdf-compact p {
+  margin-top: 6px;
+  max-width: 48ch;
+  line-height: 1.6;
+}
+
 .pdf-chart-frame {
   border-radius: 18px;
   background: #ffffff;
   padding: 12px;
+}
+
+.pdf-chart-frame--finance-secondary {
+  flex: 1;
+  min-height: 290px;
+  display: flex;
+  align-items: stretch;
+  padding: 10px;
 }
 
 .pdf-chart-image {
@@ -4060,12 +4163,24 @@ function toNumber(value: number | string | undefined | null) {
   border-radius: 12px;
 }
 
+.pdf-chart-image--finance-secondary {
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
 .pdf-state-card {
   margin-top: auto;
 }
 
 .panel-empty.compact {
   min-height: 180px;
+}
+
+.panel-empty.compact.panel-empty--pdf-finance {
+  margin-top: 0;
+  flex: 1;
+  min-height: 290px;
 }
 
 @keyframes shimmer {
@@ -4088,8 +4203,7 @@ function toNumber(value: number | string | undefined | null) {
   .feature-layout,
   .finance-secondary-grid,
   .feature-layout--tax,
-  .status-grid,
-  .pdf-finance-grid {
+  .status-grid {
     grid-template-columns: 1fr;
   }
 
