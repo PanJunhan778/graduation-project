@@ -18,7 +18,7 @@ import java.util.Set;
 public class MyBatisPlusConfig {
 
     private static final Set<String> IGNORE_TABLES = Set.of(
-            "company", "user", "audit_log", "ai_chat_log"
+            "company", "user", "audit_log", "ai_chat_log", "home_ai_summary_snapshot"
     );
 
     @Bean

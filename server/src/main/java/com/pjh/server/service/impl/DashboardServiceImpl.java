@@ -18,6 +18,7 @@ import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.mapper.TaxRecordMapper;
 import com.pjh.server.mapper.UserMapper;
 import com.pjh.server.service.DashboardService;
+import com.pjh.server.service.HomeAiSummarySnapshotService;
 import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceDashboardVO;
 import com.pjh.server.vo.HomeAiSummaryVO;
@@ -78,6 +79,7 @@ public class DashboardServiceImpl implements DashboardService {
     private final Clock clock;
     private final AiProperties aiProperties;
     private final ObjectProvider<OpenAiChatModel> chatModelProvider;
+    private final HomeAiSummarySnapshotService homeAiSummarySnapshotService;
     private final Cache<Long, HomeAiSummaryVO> homeAiSummaryCache = Caffeine.newBuilder()
             .expireAfterWrite(HOME_AI_SUMMARY_CACHE_TTL)
             .maximumSize(128)
@@ -121,19 +123,7 @@ public class DashboardServiceImpl implements DashboardService {
     @Override
     public HomeAiSummaryVO getHomeAiSummary() {
         Long companyId = currentSessionService.requireCurrentCompanyId();
-        HomeAiSummaryVO cached = homeAiSummaryCache.getIfPresent(companyId);
-        if (cached != null) {
-            return cached;
-        }
-
-        Company company = companyMapper.selectById(companyId);
-        HomeDashboardVO dashboard = getHomeDashboard();
-
-        HomeAiSummaryVO summary = new HomeAiSummaryVO();
-        summary.setSummaryLines(generateHomeAiSummaryLines(companyId, company, dashboard));
-        summary.setGeneratedAt(LocalDateTime.now(clock).toString());
-        homeAiSummaryCache.put(companyId, summary);
-        return summary;
+        return homeAiSummarySnapshotService.getHomeAiSummary(companyId);
     }
 
     @Override

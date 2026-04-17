@@ -9,6 +9,7 @@ import com.pjh.server.vo.TaxDashboardVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.hamcrest.Matchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
@@ -99,6 +100,7 @@ class DashboardControllerTest {
                 "\u5f53\u524d\u4ecd\u6709\u5f85\u7f34\u7a0e\u989d\u9700\u8981\u5173\u6ce8\u3002"
         ));
         summary.setGeneratedAt("2026-04-13T09:30:00");
+        summary.setStatus("ready");
 
         when(dashboardService.getHomeAiSummary()).thenReturn(summary);
 
@@ -107,7 +109,26 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.summaryLines[0]").value("\u6700\u8fd1\u5b8c\u6574\u6708\u51c0\u5229\u6da6\u56de\u5347\u3002"))
                 .andExpect(jsonPath("$.data.summaryLines[1]").value("\u5f53\u524d\u4ecd\u6709\u5f85\u7f34\u7a0e\u989d\u9700\u8981\u5173\u6ce8\u3002"))
-                .andExpect(jsonPath("$.data.generatedAt").value("2026-04-13T09:30:00"));
+                .andExpect(jsonPath("$.data.generatedAt").value("2026-04-13T09:30:00"))
+                .andExpect(jsonPath("$.data.status").value("ready"));
+
+        verify(dashboardService).getHomeAiSummary();
+    }
+
+    @Test
+    void getHomeAiSummaryShouldAllowNullGeneratedAtForRefreshingState() throws Exception {
+        HomeAiSummaryVO summary = new HomeAiSummaryVO();
+        summary.setSummaryLines(List.of());
+        summary.setGeneratedAt(null);
+        summary.setStatus("refreshing");
+
+        when(dashboardService.getHomeAiSummary()).thenReturn(summary);
+
+        mockMvc.perform(get("/api/dashboard/home-ai-summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.generatedAt").value(Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.status").value("refreshing"));
 
         verify(dashboardService).getHomeAiSummary();
     }
@@ -193,7 +214,7 @@ class DashboardControllerTest {
         summaryItem.setAmount(new BigDecimal("9600.00"));
         dashboard.setStatusSummary(List.of(summaryItem));
 
-        when(dashboardService.getTaxDashboard("thisYear")).thenReturn(dashboard);
+        when(dashboardService.getTaxDashboard(null)).thenReturn(dashboard);
 
         mockMvc.perform(get("/api/dashboard/tax"))
                 .andExpect(status().isOk())
@@ -203,6 +224,6 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.taxTypeStructure[0].taxType").value("\u589e\u503c\u7a0e"))
                 .andExpect(jsonPath("$.data.statusSummary[0].status").value(0));
 
-        verify(dashboardService).getTaxDashboard("thisYear");
+        verify(dashboardService).getTaxDashboard(null);
     }
 }

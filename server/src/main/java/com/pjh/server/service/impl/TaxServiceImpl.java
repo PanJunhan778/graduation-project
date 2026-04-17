@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.AuditUpdate;
 import com.pjh.server.common.Result;
+import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.TaxUpsertDTO;
 import com.pjh.server.entity.TaxRecord;
 import com.pjh.server.exception.BusinessException;
@@ -37,6 +38,7 @@ public class TaxServiceImpl implements TaxService {
 
     private final TaxRecordMapper taxRecordMapper;
     private final AuditOperationService auditOperationService;
+    private final HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
 
     @Override
     public IPage<TaxRecordVO> listRecords(int page, int size, String taxType, Integer paymentStatus, String taxPeriod) {
@@ -61,6 +63,7 @@ public class TaxServiceImpl implements TaxService {
         applyUpsert(record, dto);
         taxRecordMapper.insert(record);
         auditOperationService.publishCreate("tax", record.getId(), record, AUDIT_FIELDS);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
@@ -77,6 +80,7 @@ public class TaxServiceImpl implements TaxService {
 
         applyUpsert(record, dto);
         taxRecordMapper.updateById(record);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
@@ -88,6 +92,7 @@ public class TaxServiceImpl implements TaxService {
         }
         taxRecordMapper.deleteById(id);
         auditOperationService.publishDelete("tax", id, record, AUDIT_FIELDS);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
@@ -99,12 +104,17 @@ public class TaxServiceImpl implements TaxService {
         List<TaxRecord> records = taxRecordMapper.selectBatchIds(ids);
         taxRecordMapper.deleteBatchIds(ids);
         records.forEach(record -> auditOperationService.publishDelete("tax", record.getId(), record, AUDIT_FIELDS));
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
     @Transactional
     public Result<?> importExcel(MultipartFile file) {
-        return TaxImportExcelHelper.importExcel(file, taxRecordMapper);
+        Result<?> result = TaxImportExcelHelper.importExcel(file, taxRecordMapper);
+        if (result.getCode() == 200) {
+            homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
+        }
+        return result;
     }
 
     @Override

@@ -1,6 +1,7 @@
 package com.pjh.server.service.impl;
 
 import com.pjh.server.audit.AuditOperationService;
+import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.TaxUpsertDTO;
 import com.pjh.server.entity.TaxRecord;
 import com.pjh.server.exception.BusinessException;
@@ -35,6 +36,9 @@ class TaxServiceImplTest {
     @Mock
     private AuditOperationService auditOperationService;
 
+    @Mock
+    private HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
+
     @InjectMocks
     private TaxServiceImpl taxService;
 
@@ -51,12 +55,13 @@ class TaxServiceImplTest {
         assertNull(captor.getValue().getPaymentDate());
         assertEquals(0, captor.getValue().getTaxAmount().compareTo(new BigDecimal("-200.00")));
         verify(auditOperationService).publishCreate(eq("tax"), any(), any(TaxRecord.class), any());
+        verify(homeAiSummarySnapshotInvalidationPublisher).publishCurrentCompany();
     }
 
     @Test
     void createRecordShouldAllowNegativeZeroAndPositiveTaxAmounts() {
         for (String amount : new String[]{"-200.00", "0.00", "1500.00"}) {
-            clearInvocations(taxRecordMapper, auditOperationService);
+            clearInvocations(taxRecordMapper, auditOperationService, homeAiSummarySnapshotInvalidationPublisher);
             TaxUpsertDTO dto = createValidDto(new BigDecimal(amount));
 
             taxService.createRecord(dto);
@@ -65,6 +70,7 @@ class TaxServiceImplTest {
             verify(taxRecordMapper).insert(captor.capture());
             assertEquals(0, captor.getValue().getTaxAmount().compareTo(new BigDecimal(amount)));
             verify(auditOperationService).publishCreate(eq("tax"), any(), any(TaxRecord.class), any());
+            verify(homeAiSummarySnapshotInvalidationPublisher).publishCurrentCompany();
         }
     }
 
@@ -99,6 +105,7 @@ class TaxServiceImplTest {
         ArgumentCaptor<TaxRecord> captor = ArgumentCaptor.forClass(TaxRecord.class);
         verify(taxRecordMapper).updateById(captor.capture());
         assertNull(captor.getValue().getPaymentDate());
+        verify(homeAiSummarySnapshotInvalidationPublisher).publishCurrentCompany();
     }
 
     @Test
@@ -111,6 +118,7 @@ class TaxServiceImplTest {
 
         verify(taxRecordMapper).deleteById(1L);
         verify(auditOperationService).publishDelete(eq("tax"), eq(1L), same(existing), any());
+        verify(homeAiSummarySnapshotInvalidationPublisher).publishCurrentCompany();
     }
 
     private TaxUpsertDTO createValidDto(BigDecimal taxAmount) {

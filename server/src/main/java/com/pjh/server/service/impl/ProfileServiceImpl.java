@@ -2,6 +2,7 @@ package com.pjh.server.service.impl;
 
 import cn.dev33.satoken.secure.BCrypt;
 import com.pjh.server.common.Constants;
+import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.ChangePasswordDTO;
 import com.pjh.server.dto.UpdateCompanySettingsDTO;
 import com.pjh.server.dto.UpdateProfileDTO;
@@ -25,6 +26,7 @@ public class ProfileServiceImpl implements ProfileService {
     private final UserMapper userMapper;
     private final CompanyMapper companyMapper;
     private final CurrentSessionService currentSessionService;
+    private final HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
 
     @Override
     public ProfileVO getCurrentProfile() {
@@ -82,6 +84,7 @@ public class ProfileServiceImpl implements ProfileService {
             company.setDescription(normalizeOptionalText(dto.getDescription()));
         }
         companyMapper.updateById(company);
+        homeAiSummarySnapshotInvalidationPublisher.publish(companyId);
 
         return toProfileVO(requireCurrentUser(), company);
     }

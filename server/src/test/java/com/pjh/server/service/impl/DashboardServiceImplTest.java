@@ -12,6 +12,7 @@ import com.pjh.server.mapper.EmployeeMapper;
 import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.mapper.TaxRecordMapper;
 import com.pjh.server.mapper.UserMapper;
+import com.pjh.server.service.HomeAiSummarySnapshotService;
 import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceDashboardVO;
 import com.pjh.server.vo.HomeAiSummaryVO;
@@ -40,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -69,6 +71,9 @@ class DashboardServiceImplTest {
     @Mock
     private ObjectProvider<OpenAiChatModel> chatModelProvider;
 
+    @Mock
+    private HomeAiSummarySnapshotService homeAiSummarySnapshotService;
+
     private DashboardServiceImpl dashboardService;
 
     @BeforeEach
@@ -84,7 +89,8 @@ class DashboardServiceImplTest {
                 currentSessionService,
                 fixedClock,
                 aiProperties,
-                chatModelProvider
+                chatModelProvider,
+                homeAiSummarySnapshotService
         );
     }
 
@@ -230,37 +236,18 @@ class DashboardServiceImplTest {
     }
 
     @Test
-    void getHomeAiSummaryShouldFallbackToHeuristicLinesAndReuseCache() {
-        when(financeRecordMapper.selectMaps(any(QueryWrapper.class)))
-                .thenReturn(
-                        List.of(
-                                row("type", "income", "total", new BigDecimal("12000.00")),
-                                row("type", "expense", "total", new BigDecimal("7000.00"))
-                        ),
-                        List.of(
-                                row("month", "2025-10", "income", new BigDecimal("1000.00"), "expense", new BigDecimal("200.00")),
-                                row("month", "2026-02", "income", new BigDecimal("500.00"), "expense", new BigDecimal("800.00"))
-                        )
-                );
-        when(financeRecordMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
-        when(employeeMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
-                employee(1L, "Alice", "研发部", "10000.00", "2025-11-05")
-        ));
-        when(taxRecordMapper.selectMaps(any(QueryWrapper.class)))
-                .thenReturn(List.of(row("total", new BigDecimal("3200.00"))));
-        when(taxRecordMapper.selectList(any(QueryWrapper.class))).thenReturn(List.of());
-        when(userMapper.selectCount(any(LambdaQueryWrapper.class))).thenReturn(1L);
+    void getHomeAiSummaryShouldDelegateToSnapshotService() {
         when(currentSessionService.requireCurrentCompanyId()).thenReturn(9L);
-        when(companyMapper.selectById(9L)).thenReturn(company());
+        HomeAiSummaryVO summary = new HomeAiSummaryVO();
+        summary.setSummaryLines(List.of("旧摘要依然可用。"));
+        summary.setGeneratedAt("2026-04-11T16:00");
+        summary.setStatus("ready");
+        when(homeAiSummarySnapshotService.getHomeAiSummary(9L)).thenReturn(summary);
 
-        HomeAiSummaryVO first = dashboardService.getHomeAiSummary();
-        HomeAiSummaryVO second = dashboardService.getHomeAiSummary();
+        HomeAiSummaryVO result = dashboardService.getHomeAiSummary();
 
-        assertEquals(first, second);
-        assertEquals(3, first.getSummaryLines().size());
-        assertTrue(first.getSummaryLines().stream().allMatch(line -> line != null && !line.isBlank()));
-        assertEquals("2026-04-11T16:00", first.getGeneratedAt());
-        verify(companyMapper).selectById(9L);
+        assertEquals(summary, result);
+        verify(homeAiSummarySnapshotService).getHomeAiSummary(eq(9L));
     }
 
     @Test

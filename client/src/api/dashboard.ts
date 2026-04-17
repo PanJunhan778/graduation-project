@@ -21,7 +21,6 @@ interface HomeAiSummaryRequestOptions {
 
 export function getHomeAiSummary(options?: HomeAiSummaryRequestOptions): Promise<Result<HomeAiSummaryVO>> {
   return request.get('/dashboard/home-ai-summary', {
-    timeout: 75000,
     signal: options?.signal,
     silentError: true,
   })

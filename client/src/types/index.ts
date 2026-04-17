@@ -277,7 +277,8 @@ export interface HomeDashboardVO {
 
 export interface HomeAiSummaryVO {
   summaryLines: string[]
-  generatedAt: string
+  generatedAt: string | null
+  status: 'ready' | 'refreshing' | 'empty' | 'failed'
 }
 
 /** 数据看板时间范围 */

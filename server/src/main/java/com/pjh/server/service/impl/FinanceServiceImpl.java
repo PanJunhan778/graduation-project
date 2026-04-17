@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.AuditUpdate;
 import com.pjh.server.common.Result;
+import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.FinanceCreateDTO;
 import com.pjh.server.entity.FinanceRecord;
 import com.pjh.server.exception.BusinessException;
@@ -40,6 +41,7 @@ public class FinanceServiceImpl implements FinanceService {
     private static final String[] AUDIT_FIELDS = {"type", "amount", "category", "project", "date", "remark"};
     private final FinanceRecordMapper financeRecordMapper;
     private final AuditOperationService auditOperationService;
+    private final HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
 
     private static final Set<String> VALID_TYPES = Set.of("income", "expense");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -74,6 +76,7 @@ public class FinanceServiceImpl implements FinanceService {
         record.setRemark(dto.getRemark());
         financeRecordMapper.insert(record);
         auditOperationService.publishCreate("finance", record.getId(), record, AUDIT_FIELDS);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
@@ -97,6 +100,7 @@ public class FinanceServiceImpl implements FinanceService {
         record.setDate(dto.getDate());
         record.setRemark(dto.getRemark());
         financeRecordMapper.updateById(record);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
@@ -108,6 +112,7 @@ public class FinanceServiceImpl implements FinanceService {
         }
         financeRecordMapper.deleteById(id);
         auditOperationService.publishDelete("finance", id, record, AUDIT_FIELDS);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
@@ -119,12 +124,17 @@ public class FinanceServiceImpl implements FinanceService {
         List<FinanceRecord> records = financeRecordMapper.selectBatchIds(ids);
         financeRecordMapper.deleteBatchIds(ids);
         records.forEach(record -> auditOperationService.publishDelete("finance", record.getId(), record, AUDIT_FIELDS));
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
 
     @Override
     @Transactional
     public Result<?> importExcel(MultipartFile file) {
-        return FinanceImportExcelHelper.importExcel(file, financeRecordMapper);
+        Result<?> result = FinanceImportExcelHelper.importExcel(file, financeRecordMapper);
+        if (result.getCode() == 200) {
+            homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
+        }
+        return result;
     }
 
     @SuppressWarnings("unused")

@@ -1,6 +1,7 @@
 package com.pjh.server.service.impl;
 
 import cn.dev33.satoken.secure.BCrypt;
+import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.ChangePasswordDTO;
 import com.pjh.server.dto.UpdateCompanySettingsDTO;
 import com.pjh.server.dto.UpdateProfileDTO;
@@ -37,11 +38,19 @@ class ProfileServiceImplTest {
     @Mock
     private CurrentSessionService currentSessionService;
 
+    @Mock
+    private HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
+
     private ProfileServiceImpl profileService;
 
     @BeforeEach
     void setUp() {
-        profileService = new ProfileServiceImpl(userMapper, companyMapper, currentSessionService);
+        profileService = new ProfileServiceImpl(
+                userMapper,
+                companyMapper,
+                currentSessionService,
+                homeAiSummarySnapshotInvalidationPublisher
+        );
     }
 
     @Test
@@ -145,6 +154,7 @@ class ProfileServiceImplTest {
         assertNull(company.getDescription());
         assertEquals("新公司名称", result.getCompanyName());
         verify(companyMapper).updateById(company);
+        verify(homeAiSummarySnapshotInvalidationPublisher).publish(9L);
     }
 
     @Test
@@ -166,6 +176,7 @@ class ProfileServiceImplTest {
         assertEquals("新的企业画像摘要", company.getDescription());
         assertEquals("新的企业画像摘要", result.getCompanyDescription());
         verify(companyMapper).updateById(company);
+        verify(homeAiSummarySnapshotInvalidationPublisher).publish(9L);
     }
 
     private User buildUser() {

@@ -47,6 +47,11 @@ let departmentChart: EChartsType | null = null
 let resizeObserver: ResizeObserver | null = null
 let aiSummaryAbortController: AbortController | null = null
 let aiSummaryRequestId = 0
+let aiSummaryPollTimer: number | null = null
+let aiSummaryPollAttempts = 0
+
+const AI_SUMMARY_POLL_INTERVAL = 3000
+const AI_SUMMARY_POLL_MAX_ATTEMPTS = 10
 
 const showLoadingSkeleton = useDelayedLoading(() => loading.value && !dashboard.value && !errorMessage.value)
 
@@ -165,14 +170,39 @@ const remainingTaxCalendarCount = computed(() => Math.max(taxCalendar.value.leng
 const canExportHome = computed(() => Boolean(dashboard.value) && !loading.value && !errorMessage.value && !exporting.value)
 const aiSummaryLines = computed(() => aiSummary.value?.summaryLines?.filter((line) => line?.trim()) ?? [])
 const homeAiSummaryLines = computed(() => aiSummaryLines.value.slice(0, 2))
+const aiSummaryStatus = computed(() => aiSummary.value?.status ?? '')
 const aiSummaryGeneratedText = computed(() =>
   aiSummary.value?.generatedAt ? formatGeneratedAt(aiSummary.value.generatedAt) : '',
 )
+const shouldShowAiSummarySkeleton = computed(() => aiSummaryLoading.value && !aiSummary.value)
+const aiSummaryHelperText = computed(() => {
+  if (aiSummaryStatus.value === 'refreshing' && homeAiSummaryLines.value.length) {
+    return 'AI 正在更新速记，本卡片会自动刷新。'
+  }
+  return ''
+})
+const aiSummaryEmptyText = computed(() => {
+  if (aiSummaryStatus.value === 'refreshing') {
+    return 'AI 正在生成本期经营速记，请稍候。'
+  }
+  if (aiSummaryStatus.value === 'empty') {
+    return '暂无可生成的经营数据，先录入财务或税务数据。'
+  }
+  if (aiSummaryStatus.value === 'failed') {
+    return aiSummaryError.value || 'AI 速记暂时不可用，请稍后重试。'
+  }
+  if (aiSummaryLoading.value) {
+    return 'AI 速记加载中，请稍候。'
+  }
+  return 'AI 会根据经营数据生成短摘要。'
+})
 const exportAiLines = computed(() => {
   if (aiSummaryLines.value.length) return aiSummaryLines.value
-  if (aiSummaryLoading.value) return ['AI 正在生成速记，首次加载可能需要几十秒。']
-  if (aiSummaryError.value) return ['AI 摘要暂时不可用，可进入 AI 助理继续追问。']
-  return ['AI 会根据近 6 个完整月份的经营数据自动生成短摘要。']
+  if (aiSummaryStatus.value === 'refreshing') return ['AI 正在生成本期经营速记，请稍候。']
+  if (aiSummaryStatus.value === 'empty') return ['暂无可生成的经营数据，先录入财务或税务数据。']
+  if (aiSummaryStatus.value === 'failed') return ['AI 速记暂时不可用，请稍后重试。']
+  if (aiSummaryLoading.value) return ['AI 速记加载中，请稍候。']
+  return ['AI 会根据经营数据自动生成短摘要。']
 })
 
 watch(
@@ -188,6 +218,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopAiSummaryPolling()
   cancelAiSummaryRequest()
   disconnectChartObserver()
   disposeCharts()
@@ -196,6 +227,7 @@ onBeforeUnmount(() => {
 async function fetchDashboardData() {
   loading.value = true
   errorMessage.value = ''
+  stopAiSummaryPolling()
   cancelAiSummaryRequest()
   aiSummary.value = null
   aiSummaryError.value = ''
@@ -217,23 +249,40 @@ async function fetchDashboardData() {
   }
 }
 
-async function fetchAiSummary() {
+async function fetchAiSummary(options: { isPolling?: boolean } = {}) {
+  if (!options.isPolling) {
+    stopAiSummaryPolling()
+  }
   cancelAiSummaryRequest()
   const requestId = ++aiSummaryRequestId
   const controller = new AbortController()
   aiSummaryAbortController = controller
-  aiSummaryLoading.value = true
+  aiSummaryLoading.value = !options.isPolling && !aiSummary.value
   aiSummaryError.value = ''
 
   try {
     const res = await getHomeAiSummary({ signal: controller.signal })
     if (controller.signal.aborted || requestId !== aiSummaryRequestId) return
     aiSummary.value = normalizeAiSummary(res.data)
+    aiSummaryError.value = ''
+    if (aiSummary.value.status === 'refreshing') {
+      queueAiSummaryPolling()
+    } else {
+      stopAiSummaryPolling()
+    }
   } catch (error) {
     if (isAiSummaryAbortError(error) || controller.signal.aborted || requestId !== aiSummaryRequestId) {
       return
     }
     aiSummaryError.value = (error as { message?: string })?.message || 'AI 摘要暂时不可用'
+    stopAiSummaryPolling()
+    if (!aiSummary.value?.summaryLines?.length) {
+      aiSummary.value = {
+        generatedAt: null,
+        summaryLines: [],
+        status: 'failed',
+      }
+    }
   } finally {
     if (aiSummaryAbortController === controller) {
       aiSummaryAbortController = null
@@ -245,6 +294,32 @@ async function fetchAiSummary() {
 function cancelAiSummaryRequest() {
   aiSummaryAbortController?.abort()
   aiSummaryAbortController = null
+}
+
+function stopAiSummaryPolling(resetAttempts = true) {
+  if (aiSummaryPollTimer !== null) {
+    window.clearTimeout(aiSummaryPollTimer)
+    aiSummaryPollTimer = null
+  }
+  if (resetAttempts) {
+    aiSummaryPollAttempts = 0
+  }
+}
+
+function queueAiSummaryPolling() {
+  if (aiSummaryStatus.value !== 'refreshing') {
+    stopAiSummaryPolling()
+    return
+  }
+  if (aiSummaryPollTimer !== null || aiSummaryPollAttempts >= AI_SUMMARY_POLL_MAX_ATTEMPTS) {
+    return
+  }
+
+  aiSummaryPollTimer = window.setTimeout(() => {
+    aiSummaryPollTimer = null
+    aiSummaryPollAttempts += 1
+    void fetchAiSummary({ isPolling: true })
+  }, AI_SUMMARY_POLL_INTERVAL)
 }
 
 function isAiSummaryAbortError(error: unknown) {
@@ -331,6 +406,7 @@ function normalizeAiSummary(data: HomeAiSummaryVO): HomeAiSummaryVO {
   return {
     generatedAt: data.generatedAt,
     summaryLines: (data.summaryLines || []).map((line) => line.trim()).filter(Boolean),
+    status: data.status || 'failed',
   }
 }
 
@@ -753,13 +829,13 @@ function toNumber(value: number | string | undefined | null) {
 
             <div class="ai-brief__body">
               <div class="ai-brief__content">
-                <template v-if="aiSummaryLoading">
+                <template v-if="shouldShowAiSummarySkeleton">
                   <div class="ai-loading">
                     <div class="skeleton-line skeleton-body" />
                     <div class="skeleton-line skeleton-body short" />
                     <div class="skeleton-line skeleton-body short" />
                   </div>
-                  <p class="ai-helper-text">AI 正在生成速记，首次加载可能需要几十秒。</p>
+                  <p class="ai-helper-text">AI 速记加载中，请稍候。</p>
                 </template>
 
                 <template v-else-if="homeAiSummaryLines.length">
@@ -773,10 +849,11 @@ function toNumber(value: number | string | undefined | null) {
                       <span class="ai-summary-line__text">{{ line }}</span>
                     </div>
                   </div>
+                  <p v-if="aiSummaryHelperText" class="ai-helper-text">{{ aiSummaryHelperText }}</p>
                 </template>
 
                 <div v-else class="ai-empty">
-                  <p>{{ aiSummaryError || 'AI 摘要暂时不可用，仍可进入 AI 助理继续追问。' }}</p>
+                  <p>{{ aiSummaryEmptyText }}</p>
                 </div>
               </div>
 

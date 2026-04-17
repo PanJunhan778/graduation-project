@@ -161,6 +161,22 @@ CREATE TABLE IF NOT EXISTS `ai_pending_action` (
     INDEX `idx_session_id` (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI待确认动作表';
 
+CREATE TABLE IF NOT EXISTS `home_ai_summary_snapshot` (
+    `id`                 BIGINT       NOT NULL AUTO_INCREMENT,
+    `company_id`         BIGINT       NOT NULL COMMENT '公司ID',
+    `summary_lines_json` LONGTEXT     NULL COMMENT '首页AI摘要JSON',
+    `status`             VARCHAR(20)  NOT NULL COMMENT 'ready/refreshing/empty/failed',
+    `is_dirty`           TINYINT      NOT NULL DEFAULT 0 COMMENT '1表示需要刷新',
+    `generated_at`       DATETIME     NULL COMMENT '摘要生成时间',
+    `refresh_started_at` DATETIME     NULL COMMENT '最近一次刷新开始时间',
+    `last_error`         VARCHAR(500) NULL COMMENT '最近一次刷新错误',
+    `created_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_time`       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `is_deleted`         TINYINT      NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `uk_home_ai_summary_company` (`company_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='首页AI经营速记快照表';
+
 -- ============================================
 -- 预置数据：系统管理员账号
 -- 密码: Admin@123 (BCrypt加密)

@@ -10,4 +10,6 @@ public class HomeAiSummaryVO {
     private List<String> summaryLines;
 
     private String generatedAt;
+
+    private String status;
 }

@@ -10,7 +10,7 @@ class FinanceServiceImplTest {
 
     @Test
     void downloadTemplateShouldWriteExcelContent() throws Exception {
-        FinanceServiceImpl service = new FinanceServiceImpl(null, null);
+        FinanceServiceImpl service = new FinanceServiceImpl(null, null, null);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         service.downloadTemplate(response);

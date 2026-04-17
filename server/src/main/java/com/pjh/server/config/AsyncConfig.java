@@ -26,6 +26,17 @@ public class AsyncConfig implements AsyncConfigurer {
         return executor;
     }
 
+    @Bean("homeAiSummaryTaskExecutor")
+    public Executor homeAiSummaryTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("ems-home-ai-");
+        executor.initialize();
+        return executor;
+    }
+
     @Override
     public Executor getAsyncExecutor() {
         return auditLogTaskExecutor();
