@@ -467,3 +467,30 @@ export interface AiActionRequiredPayload {
   proposedValue: string
   confirmToken: string
 }
+
+export interface AiChatStreamStartEvent {
+  sessionId: string
+}
+
+export interface AiChatStreamTokenEvent {
+  delta: string
+}
+
+export interface AiChatStreamActionRequiredEvent {
+  sessionId: string
+  actionRequired: AiActionRequiredPayload
+}
+
+export interface AiChatStreamErrorEvent {
+  code: number
+  message: string
+}
+
+export type AiChatStreamDoneReason = 'message' | 'action_required' | 'error'
+
+export interface AiChatStreamDoneEvent {
+  sessionId: string | null
+  reason: AiChatStreamDoneReason
+  messageId?: number | null
+  messageType?: 'markdown' | null
+}

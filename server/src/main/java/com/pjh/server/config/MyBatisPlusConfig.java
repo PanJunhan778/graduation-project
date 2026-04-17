@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.handler.TenantLineHandler;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import com.pjh.server.common.Constants;
+import com.pjh.server.util.TenantContextHolder;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.NullValue;
@@ -25,17 +26,18 @@ public class MyBatisPlusConfig {
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
 
-        interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(new TenantLineHandler() {
+        interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantLineHandler()));
+
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor());
+
+        return interceptor;
+    }
+
+    TenantLineHandler tenantLineHandler() {
+        return new TenantLineHandler() {
             @Override
             public Expression getTenantId() {
-                try {
-                    Object companyId = StpUtil.getExtra(Constants.JWT_COMPANY_ID_KEY);
-                    if (companyId != null) {
-                        return new LongValue(Long.parseLong(companyId.toString()));
-                    }
-                } catch (Exception ignored) {
-                }
-                return new NullValue();
+                return resolveTenantId();
             }
 
             @Override
@@ -47,10 +49,21 @@ public class MyBatisPlusConfig {
             public boolean ignoreTable(String tableName) {
                 return IGNORE_TABLES.contains(tableName);
             }
-        }));
+        };
+    }
 
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor());
-
-        return interceptor;
+    Expression resolveTenantId() {
+        Long companyId = TenantContextHolder.getCompanyId();
+        if (companyId != null) {
+            return new LongValue(companyId);
+        }
+        try {
+            Object companyIdExtra = StpUtil.getExtra(Constants.JWT_COMPANY_ID_KEY);
+            if (companyIdExtra != null) {
+                return new LongValue(Long.parseLong(companyIdExtra.toString()));
+            }
+        } catch (Exception ignored) {
+        }
+        return new NullValue();
     }
 }

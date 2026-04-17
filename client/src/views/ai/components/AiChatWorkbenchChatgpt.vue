@@ -10,10 +10,13 @@ import {
   deleteAiSession,
   listAiMessages,
   listAiSessions,
+  streamAiChat,
 } from '@/api/ai'
 import type {
   AiActionMetadata,
   AiChatMessageVO,
+  AiChatStreamDoneEvent,
+  AiChatStreamErrorEvent,
   AiSessionVO,
 } from '@/types'
 import {
@@ -282,6 +285,138 @@ async function handleSendMessage() {
   }
 }
 
+void handleSendMessage
+
+async function handleSendMessageStream() {
+  const text = inputMessage.value.trim()
+  if (!text || isThinking.value) {
+    return
+  }
+
+  const userMessage: AiChatMessageVO = {
+    id: -Date.now(),
+    role: 'user',
+    messageType: 'text',
+    content: text,
+    metadata: null,
+    createTime: new Date().toISOString(),
+  }
+
+  const requestId = activeChatRequestId.value + 1
+  activeChatRequestId.value = requestId
+  let resolvedSessionId = activeSessionId.value
+  const assistantPlaceholderId = -(Date.now() + Math.floor(Math.random() * 1000) + 1)
+  let doneEvent: AiChatStreamDoneEvent | null = null
+  let actionRequiredSessionId = ''
+  let streamError: AiChatStreamErrorEvent | null = null
+
+  messages.value.push(userMessage)
+  messages.value.push({
+    id: assistantPlaceholderId,
+    role: 'assistant',
+    messageType: 'markdown',
+    content: '',
+    metadata: null,
+    createTime: new Date().toISOString(),
+  })
+  inputMessage.value = ''
+  isThinking.value = true
+
+  const abortController = new AbortController()
+  requestAbortController.value = abortController
+
+  try {
+    await streamAiChat(
+      {
+        sessionId: activeSessionId.value || undefined,
+        message: text,
+      },
+      {
+        onStart: (payload) => {
+          if (requestId !== activeChatRequestId.value) return
+          resolvedSessionId = payload.sessionId
+          if (!activeSessionId.value) {
+            activeSessionId.value = payload.sessionId
+          }
+        },
+        onToken: (payload) => {
+          if (requestId !== activeChatRequestId.value) return
+          appendAssistantDelta(assistantPlaceholderId, payload.delta)
+        },
+        onActionRequired: (payload) => {
+          if (requestId !== activeChatRequestId.value) return
+          actionRequiredSessionId = payload.sessionId
+          resolvedSessionId = payload.sessionId
+          removeMessageById(assistantPlaceholderId)
+        },
+        onError: (payload) => {
+          if (requestId !== activeChatRequestId.value) return
+          streamError = payload
+          markAssistantMessageInterrupted(assistantPlaceholderId)
+        },
+        onDone: (payload) => {
+          if (requestId !== activeChatRequestId.value) return
+          doneEvent = payload
+          if (payload.sessionId) {
+            resolvedSessionId = payload.sessionId
+          }
+        },
+      },
+      abortController.signal,
+    )
+
+    if (requestId !== activeChatRequestId.value) {
+      return
+    }
+
+    const completedEvent = doneEvent as AiChatStreamDoneEvent | null
+    const latestStreamError = streamError as AiChatStreamErrorEvent | null
+
+    if (completedEvent && completedEvent.reason === 'message') {
+      finalizeAssistantMessage(
+        assistantPlaceholderId,
+        completedEvent.messageId ?? assistantPlaceholderId,
+        completedEvent.messageType || 'markdown',
+      )
+      await refreshSessions(resolvedSessionId || undefined, { reloadMessages: false })
+      return
+    }
+
+    if (completedEvent && completedEvent.reason === 'action_required') {
+      const targetSessionId = actionRequiredSessionId || resolvedSessionId
+      if (targetSessionId) {
+        await loadMessages(targetSessionId)
+        await refreshSessions(targetSessionId, { reloadMessages: false })
+      }
+      return
+    }
+
+    if (completedEvent && completedEvent.reason === 'error') {
+      await refreshSessions(resolvedSessionId || undefined, {
+        reloadMessages: false,
+        keepBlankState: !resolvedSessionId,
+      })
+      if (latestStreamError) {
+        ElMessage.error(latestStreamError.message)
+      }
+    }
+  } catch (error) {
+    if (requestId !== activeChatRequestId.value) {
+      return
+    }
+
+    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      markAssistantMessageInterrupted(assistantPlaceholderId)
+      ElMessage.error(error instanceof Error ? error.message : 'AI 服务暂时不可用')
+    }
+  } finally {
+    if (requestId === activeChatRequestId.value) {
+      isThinking.value = false
+      requestAbortController.value = null
+    }
+  }
+}
+
 async function handleConfirmAction(message: AiChatMessageVO, isApproved: boolean) {
   const metadata = getActionMetadata(message)
   if (!metadata?.confirmToken || confirmingActionId.value === metadata.actionId) {
@@ -359,6 +494,51 @@ function cancelActiveRequest() {
   isThinking.value = false
 }
 
+function appendAssistantDelta(messageId: number, delta: string) {
+  const message = findMessageById(messageId)
+  if (!message || !delta) {
+    return
+  }
+  message.content += delta
+}
+
+function finalizeAssistantMessage(
+  messageId: number,
+  nextId: number,
+  messageType: AiChatMessageVO['messageType'],
+) {
+  const message = findMessageById(messageId)
+  if (!message) {
+    return
+  }
+  message.id = nextId
+  message.messageType = messageType
+}
+
+function markAssistantMessageInterrupted(messageId: number) {
+  const message = findMessageById(messageId)
+  if (!message) {
+    return
+  }
+
+  if (!message.content.trim()) {
+    removeMessageById(messageId)
+    return
+  }
+
+  if (!message.content.includes('生成中断，未保存')) {
+    message.content = `${message.content}\n\n> 生成中断，未保存`
+  }
+}
+
+function removeMessageById(messageId: number) {
+  messages.value = messages.value.filter((message) => message.id !== messageId)
+}
+
+function findMessageById(messageId: number) {
+  return messages.value.find((message) => message.id === messageId) || null
+}
+
 function toggleHistoryRail() {
   if (isCompactScreen.value) {
     isCompactHistoryOpen.value = !isCompactHistoryOpen.value
@@ -380,7 +560,7 @@ function handleChipClick(chip: string) {
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
-    void handleSendMessage()
+    void handleSendMessageStream()
   }
 }
 
@@ -730,7 +910,7 @@ function syncCompactHistoryMode(matches: boolean) {
               circle
               title="发送消息"
               :disabled="!inputMessage.trim() || isThinking"
-              @click="handleSendMessage"
+              @click="handleSendMessageStream"
             >
               <el-icon><Promotion /></el-icon>
             </el-button>

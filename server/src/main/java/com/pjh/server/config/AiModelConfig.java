@@ -3,6 +3,7 @@ package com.pjh.server.config;
 import dev.langchain4j.model.Tokenizer;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModelName;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationRunner;
@@ -28,6 +29,20 @@ public class AiModelConfig {
                 .modelName(properties.getModel())
                 .timeout(properties.getTimeout())
                 .maxRetries(1)
+                .tokenizer(tokenizer)
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnProperty(prefix = "app.ai", name = "enabled", havingValue = "true")
+    public OpenAiStreamingChatModel aiStreamingChatModel(AiProperties properties) {
+        validateEnabledConfiguration(properties);
+        Tokenizer tokenizer = resolveTokenizer(properties);
+        return OpenAiStreamingChatModel.builder()
+                .baseUrl(properties.getBaseUrl())
+                .apiKey(properties.getApiKey())
+                .modelName(properties.getModel())
+                .timeout(properties.getTimeout())
                 .tokenizer(tokenizer)
                 .build();
     }

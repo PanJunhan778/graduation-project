@@ -17,9 +17,10 @@ import com.pjh.server.mapper.CompanyMapper;
 import com.pjh.server.service.AiHistoryService;
 import com.pjh.server.service.AiHitlService;
 import com.pjh.server.service.AiService;
+import com.pjh.server.service.AiStreamObserver;
 import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.AiChatMessageVO;
-import com.pjh.server.vo.AiChatTurnVO;
+import com.pjh.server.vo.AiChatStreamDoneVO;
 import com.pjh.server.vo.AiConfirmActionVO;
 import com.pjh.server.vo.AiSessionVO;
 import dev.ai4j.openai4j.OpenAiHttpException;
@@ -28,7 +29,8 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.StreamingResponseHandler;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.output.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,8 +45,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service
@@ -58,14 +62,14 @@ public class AiServiceImpl implements AiService {
     private final AiPromptBuilder aiPromptBuilder;
     private final AiToolFacade aiToolFacade;
     private final AiProperties aiProperties;
-    private final ObjectProvider<OpenAiChatModel> chatModelProvider;
+    private final ObjectProvider<OpenAiStreamingChatModel> streamingChatModelProvider;
     private final ObjectMapper objectMapper;
 
     @Override
-    public AiChatTurnVO chat(AiChatRequestDTO dto) {
+    public void chatStream(Long companyId, Long userId, AiChatRequestDTO dto, AiStreamObserver observer) {
         AiChatContext context = new AiChatContext(
-                currentSessionService.requireCurrentCompanyId(),
-                currentSessionService.requireCurrentUserId(),
+                companyId,
+                userId,
                 normalizeSessionId(dto.getSessionId())
         );
 
@@ -79,8 +83,6 @@ public class AiServiceImpl implements AiService {
                     aiProperties.getModel()
             );
 
-            Long companyId = context.companyId();
-            Long userId = context.userId();
             String sessionId = context.sessionId();
 
             Company company = companyMapper.selectById(companyId);
@@ -113,44 +115,25 @@ public class AiServiceImpl implements AiService {
                     history,
                     dto.getMessage()
             );
-            ChatExecutionResult executionResult = executeChatLoopSync(messages, company, companyId, userId, sessionId);
 
-            if (executionResult.actionRequired() != null) {
-                log.info(
-                        "AI chat entered HITL flow: sessionId={}, actionId={}",
-                        sessionId,
-                        executionResult.actionRequired().getActionId()
-                );
-                return buildActionRequiredResult(sessionId, executionResult.actionRequired());
+            if (observer.isClosed()) {
+                return;
             }
-
-            String finalText = normalizeAssistantText(executionResult.finalText());
-            var assistantLog = aiHistoryService.createMessage(
-                    companyId,
-                    userId,
-                    sessionId,
-                    "assistant",
-                    AiConstants.MESSAGE_TYPE_MARKDOWN,
-                    finalText,
-                    null
-            );
-            log.debug(
-                    "Stored assistant AI message: sessionId={}, messageId={}, length={}",
-                    sessionId,
-                    assistantLog.getId(),
-                    finalText.length()
-            );
-            return buildMessageResult(sessionId, assistantLog.getId(), finalText);
+            observer.onStart(sessionId);
+            executeChatLoopStream(messages, company, companyId, userId, sessionId, observer);
         } catch (Exception e) {
-            logChatFailure(context, "chat", e);
-            AiErrorPayload payload = buildErrorPayload(e);
-            throw new BusinessException(payload.code(), payload.message());
+            logChatFailure(context, "chatStream", e);
+            emitStreamError(context.sessionId(), observer, e);
         }
     }
 
-    private ChatExecutionResult executeChatLoopSync(List<ChatMessage> initialMessages, Company company,
-                                                    Long companyId, Long userId, String sessionId) {
-        OpenAiChatModel chatModel = chatModelProvider.getIfAvailable();
+    private void executeChatLoopStream(List<ChatMessage> initialMessages,
+                                       Company company,
+                                       Long companyId,
+                                       Long userId,
+                                       String sessionId,
+                                       AiStreamObserver observer) throws InterruptedException {
+        OpenAiStreamingChatModel chatModel = streamingChatModelProvider.getIfAvailable();
         if (chatModel == null) {
             throw new BusinessException("AI 模型未初始化，请先检查 app.ai 配置");
         }
@@ -159,17 +142,26 @@ public class AiServiceImpl implements AiService {
         List<ToolSpecification> toolSpecifications = aiToolFacade.toolSpecifications();
 
         for (int round = 0; round < AiConstants.CHAT_MAX_TOOL_ROUNDS; round++) {
+            if (observer.isClosed()) {
+                return;
+            }
+
             int roundNumber = round + 1;
-            Response<AiMessage> response = invokeChatModelRound(
+            StreamingRoundResult roundResult = invokeStreamingChatModelRound(
                     chatModel,
                     messages,
                     toolSpecifications,
                     sessionId,
                     companyId,
                     userId,
-                    roundNumber
+                    roundNumber,
+                    observer
             );
-            AiMessage aiMessage = response.content();
+            if (observer.isClosed()) {
+                return;
+            }
+
+            AiMessage aiMessage = roundResult.response().content();
             if (aiMessage == null) {
                 throw new BusinessException("AI 没有返回有效内容，请稍后重试");
             }
@@ -182,7 +174,12 @@ public class AiServiceImpl implements AiService {
                         roundNumber,
                         aiMessage.toolExecutionRequests().size()
                 );
+
                 for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
+                    if (observer.isClosed()) {
+                        return;
+                    }
+
                     AiToolExecutionOutcome outcome;
                     try {
                         log.debug(
@@ -216,6 +213,7 @@ public class AiServiceImpl implements AiService {
                         );
                         throw e;
                     }
+
                     if (outcome.requiresCompanyDescriptionUpdate()) {
                         String oldValue = company.getDescription() == null ? "" : company.getDescription();
                         AiActionRequiredPayload actionRequired = aiHitlService.createCompanyDescriptionPendingAction(
@@ -225,32 +223,73 @@ public class AiServiceImpl implements AiService {
                                 oldValue,
                                 outcome.pendingCompanyDescription()
                         );
-                        return ChatExecutionResult.actionRequired(actionRequired);
+                        log.info(
+                                "AI chat entered HITL flow: sessionId={}, actionId={}",
+                                sessionId,
+                                actionRequired.getActionId()
+                        );
+                        observer.onActionRequired(sessionId, actionRequired);
+                        if (!observer.isClosed()) {
+                            observer.onDone(AiChatStreamDoneVO.actionRequired(sessionId));
+                        }
+                        return;
                     }
+
                     messages.add(ToolExecutionResultMessage.from(request, outcome.resultJson()));
                 }
                 continue;
             }
 
+            if (observer.isClosed()) {
+                return;
+            }
+
+            String finalText = normalizeAssistantText(resolveAssistantText(aiMessage, roundResult.text()));
+            var assistantLog = aiHistoryService.createMessage(
+                    companyId,
+                    userId,
+                    sessionId,
+                    "assistant",
+                    AiConstants.MESSAGE_TYPE_MARKDOWN,
+                    finalText,
+                    null
+            );
+            log.debug(
+                    "Stored assistant AI message: sessionId={}, messageId={}, length={}",
+                    sessionId,
+                    assistantLog.getId(),
+                    finalText.length()
+            );
             log.info(
                     "AI model response ready: sessionId={}, round={}, responseLength={}",
                     sessionId,
                     roundNumber,
-                    aiMessage.text() == null ? 0 : aiMessage.text().length()
+                    finalText.length()
             );
-            return ChatExecutionResult.finalText(aiMessage.text());
+            observer.onDone(AiChatStreamDoneVO.message(
+                    sessionId,
+                    assistantLog.getId(),
+                    AiConstants.MESSAGE_TYPE_MARKDOWN
+            ));
+            return;
         }
 
         throw new BusinessException("AI 推理轮次超限，请换个问法后重试");
     }
 
-    private Response<AiMessage> invokeChatModelRound(OpenAiChatModel chatModel,
-                                                     List<ChatMessage> messages,
-                                                     List<ToolSpecification> toolSpecifications,
-                                                     String sessionId,
-                                                     Long companyId,
-                                                     Long userId,
-                                                     int roundNumber) {
+    private StreamingRoundResult invokeStreamingChatModelRound(OpenAiStreamingChatModel chatModel,
+                                                               List<ChatMessage> messages,
+                                                               List<ToolSpecification> toolSpecifications,
+                                                               String sessionId,
+                                                               Long companyId,
+                                                               Long userId,
+                                                               int roundNumber,
+                                                               AiStreamObserver observer) throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Response<AiMessage>> responseRef = new AtomicReference<>();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        StringBuilder streamedText = new StringBuilder();
+
         try {
             log.debug(
                     "Invoking AI model: sessionId={}, round={}, model={}, messageCount={}, toolCount={}",
@@ -260,7 +299,34 @@ public class AiServiceImpl implements AiService {
                     messages.size(),
                     toolSpecifications.size()
             );
-            return chatModel.generate(messages, toolSpecifications);
+            chatModel.generate(messages, toolSpecifications, new StreamingResponseHandler<>() {
+                @Override
+                public void onNext(String token) {
+                    if (token == null || token.isEmpty()) {
+                        return;
+                    }
+                    streamedText.append(token);
+                    if (!observer.isClosed()) {
+                        observer.onToken(token);
+                    }
+                }
+
+                @Override
+                public void onComplete(Response<AiMessage> response) {
+                    responseRef.set(response);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                }
+            });
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
         } catch (Exception e) {
             log.error(
                     "AI model invocation failed: sessionId={}, companyId={}, userId={}, round={}, model={}",
@@ -273,24 +339,20 @@ public class AiServiceImpl implements AiService {
             );
             throw e;
         }
-    }
 
-    private AiChatTurnVO buildMessageResult(String sessionId, Long messageId, String content) {
-        AiChatTurnVO vo = new AiChatTurnVO();
-        vo.setSessionId(sessionId);
-        vo.setResultType(AiConstants.CHAT_RESULT_MESSAGE);
-        vo.setMessageId(messageId);
-        vo.setMessageType(AiConstants.MESSAGE_TYPE_MARKDOWN);
-        vo.setContent(content);
-        return vo;
-    }
+        Throwable error = errorRef.get();
+        if (error != null) {
+            if (error instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new RuntimeException(error);
+        }
 
-    private AiChatTurnVO buildActionRequiredResult(String sessionId, AiActionRequiredPayload payload) {
-        AiChatTurnVO vo = new AiChatTurnVO();
-        vo.setSessionId(sessionId);
-        vo.setResultType(AiConstants.CHAT_RESULT_ACTION_REQUIRED);
-        vo.setActionRequired(payload);
-        return vo;
+        Response<AiMessage> response = responseRef.get();
+        if (response == null) {
+            throw new BusinessException("AI 没有返回有效内容，请稍后重试");
+        }
+        return new StreamingRoundResult(response, streamedText.toString());
     }
 
     @Override
@@ -340,6 +402,24 @@ public class AiServiceImpl implements AiService {
         return text == null || text.isBlank()
                 ? "抱歉，这次没有生成有效回答，请换个问法再试。"
                 : text;
+    }
+
+    private String resolveAssistantText(AiMessage aiMessage, String streamedText) {
+        if (aiMessage != null && aiMessage.text() != null && !aiMessage.text().isBlank()) {
+            return aiMessage.text();
+        }
+        return streamedText;
+    }
+
+    private void emitStreamError(String sessionId, AiStreamObserver observer, Exception exception) {
+        if (observer.isClosed()) {
+            return;
+        }
+        AiErrorPayload payload = buildErrorPayload(exception);
+        observer.onError(payload.code(), payload.message());
+        if (!observer.isClosed()) {
+            observer.onDone(AiChatStreamDoneVO.error(sessionId));
+        }
     }
 
     AiErrorPayload buildErrorPayload(Exception exception) {
@@ -487,14 +567,6 @@ public class AiServiceImpl implements AiService {
     private record ToolResultSummary(String resultCount, String minDate, String maxDate) {
     }
 
-    private record ChatExecutionResult(String finalText, AiActionRequiredPayload actionRequired) {
-
-        static ChatExecutionResult finalText(String text) {
-            return new ChatExecutionResult(text, null);
-        }
-
-        static ChatExecutionResult actionRequired(AiActionRequiredPayload payload) {
-            return new ChatExecutionResult(null, payload);
-        }
+    private record StreamingRoundResult(Response<AiMessage> response, String text) {
     }
 }

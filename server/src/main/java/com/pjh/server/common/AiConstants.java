@@ -13,6 +13,16 @@ public final class AiConstants {
     public static final String CHAT_RESULT_MESSAGE = "message";
     public static final String CHAT_RESULT_ACTION_REQUIRED = "action_required";
 
+    public static final String STREAM_EVENT_START = "start";
+    public static final String STREAM_EVENT_TOKEN = "token";
+    public static final String STREAM_EVENT_ACTION_REQUIRED = "action_required";
+    public static final String STREAM_EVENT_ERROR = "error";
+    public static final String STREAM_EVENT_DONE = "done";
+
+    public static final String STREAM_DONE_REASON_MESSAGE = "message";
+    public static final String STREAM_DONE_REASON_ACTION_REQUIRED = "action_required";
+    public static final String STREAM_DONE_REASON_ERROR = "error";
+
     public static final String ACTION_TYPE_UPDATE_COMPANY_DESCRIPTION = "update_company_description";
 
     public static final String ACTION_STATUS_PENDING = "pending";
