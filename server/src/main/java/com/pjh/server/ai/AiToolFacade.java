@@ -41,6 +41,7 @@ public class AiToolFacade {
     private static final Pattern MONTH_PERIOD_PATTERN = Pattern.compile("^(\\d{4})-(0[1-9]|1[0-2])$");
     private static final Pattern QUARTER_PERIOD_PATTERN = Pattern.compile("^(\\d{4})-Q([1-4])$");
     private static final Pattern ANNUAL_PERIOD_PATTERN = Pattern.compile("^(\\d{4})-Annual$");
+    private static final Pattern YEAR_PERIOD_PATTERN = Pattern.compile("^(\\d{4})$");
 
     private final FinanceRecordMapper financeRecordMapper;
     private final EmployeeMapper employeeMapper;
@@ -62,9 +63,9 @@ public class AiToolFacade {
                                 "department", stringProperty("Department name"),
                                 "status", integerProperty("1 for active, 0 for inactive")
                         )),
-                tool("query_tax_records", "Query tax records for the current company. Return at most 50 items.",
+                tool("query_tax_records", "Query tax records for the current company. Return at most 50 items. taxPeriod supports year or period-prefix filters, such as 2026, 2026-03, 2026-Q1, or 2026-Annual.",
                         Map.of(
-                                "taxPeriod", stringProperty("Tax period, such as 2026-03 or 2026-Q1"),
+                                "taxPeriod", stringProperty("Tax period prefix, such as 2026, 2026-03, 2026-Q1, or 2026-Annual"),
                                 "taxType", stringProperty("Tax type"),
                                 "status", integerProperty("0 unpaid, 1 paid, 2 exempt")
                         )),
@@ -81,10 +82,10 @@ public class AiToolFacade {
                                 "type", enumProperty("Finance type", List.of("income", "expense")),
                                 "groupBy", enumProperty("Grouping dimension", List.of("category", "project", "date", "type"))
                         )),
-                tool("calculate_tax_sum", "Calculate tax sums in Java for a tax period range.",
+                tool("calculate_tax_sum", "Calculate tax sums in Java for a tax period range. startPeriod and endPeriod support year-only or explicit periods, such as 2023, 2023-03, 2023-Q1, or 2023-Annual.",
                         Map.of(
-                                "startPeriod", stringProperty("Start tax period"),
-                                "endPeriod", stringProperty("End tax period"),
+                                "startPeriod", stringProperty("Start tax period or year, such as 2023, 2023-03, 2023-Q1, or 2023-Annual"),
+                                "endPeriod", stringProperty("End tax period or year, such as 2023, 2023-03, 2023-Q4, or 2023-Annual"),
                                 "status", integerProperty("0 unpaid, 1 paid, 2 exempt")
                         ),
                         List.of("startPeriod", "endPeriod")),
@@ -183,7 +184,7 @@ public class AiToolFacade {
                 .orderByDesc(TaxRecord::getId)
                 .last("LIMIT 50");
 
-        optionalText(arguments, "taxPeriod").ifPresent(taxPeriod -> wrapper.eq(TaxRecord::getTaxPeriod, taxPeriod));
+        optionalText(arguments, "taxPeriod").ifPresent(taxPeriod -> wrapper.likeRight(TaxRecord::getTaxPeriod, taxPeriod));
         optionalText(arguments, "taxType").ifPresent(taxType -> wrapper.eq(TaxRecord::getTaxType, taxType));
         if (arguments.hasNonNull("status")) {
             wrapper.eq(TaxRecord::getPaymentStatus, arguments.get("status").asInt());
@@ -302,8 +303,8 @@ public class AiToolFacade {
     private String calculateTaxSum(Long companyId, JsonNode arguments) {
         String startPeriod = requiredText(arguments, "startPeriod");
         String endPeriod = requiredText(arguments, "endPeriod");
-        int startKey = toTaxPeriodSortKey(startPeriod);
-        int endKey = toTaxPeriodSortKey(endPeriod);
+        int startKey = toTaxPeriodSortKey(startPeriod, true);
+        int endKey = toTaxPeriodSortKey(endPeriod, false);
 
         LambdaQueryWrapper<TaxRecord> wrapper = new LambdaQueryWrapper<TaxRecord>()
                 .eq(TaxRecord::getCompanyId, companyId);
@@ -484,6 +485,16 @@ public class AiToolFacade {
     }
 
     private int toTaxPeriodSortKey(String taxPeriod) {
+        return toTaxPeriodSortKey(taxPeriod, false);
+    }
+
+    private int toTaxPeriodSortKey(String taxPeriod, boolean rangeStart) {
+        Matcher yearMatcher = YEAR_PERIOD_PATTERN.matcher(taxPeriod);
+        if (yearMatcher.matches()) {
+            int year = Integer.parseInt(yearMatcher.group(1));
+            return year * 100 + (rangeStart ? 0 : 12);
+        }
+
         Matcher monthMatcher = MONTH_PERIOD_PATTERN.matcher(taxPeriod);
         if (monthMatcher.matches()) {
             return Integer.parseInt(monthMatcher.group(1)) * 100 + Integer.parseInt(monthMatcher.group(2));
