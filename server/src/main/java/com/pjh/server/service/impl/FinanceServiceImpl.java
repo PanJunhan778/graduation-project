@@ -65,15 +65,8 @@ public class FinanceServiceImpl implements FinanceService {
     @Override
     @Transactional
     public void createRecord(FinanceCreateDTO dto) {
-        validateType(dto.getType());
-
         FinanceRecord record = new FinanceRecord();
-        record.setType(dto.getType());
-        record.setAmount(dto.getAmount());
-        record.setCategory(dto.getCategory());
-        record.setProject(dto.getProject());
-        record.setDate(dto.getDate());
-        record.setRemark(dto.getRemark());
+        applyUpsert(record, dto);
         financeRecordMapper.insert(record);
         auditOperationService.publishCreate("finance", record.getId(), record, AUDIT_FIELDS);
         homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
@@ -86,19 +79,12 @@ public class FinanceServiceImpl implements FinanceService {
             fields = {"type", "amount", "category", "project", "date", "remark"}
     )
     public void updateRecord(Long id, FinanceCreateDTO dto) {
-        validateType(dto.getType());
-
         FinanceRecord record = financeRecordMapper.selectById(id);
         if (record == null) {
             throw new BusinessException("记录不存在");
         }
 
-        record.setType(dto.getType());
-        record.setAmount(dto.getAmount());
-        record.setCategory(dto.getCategory());
-        record.setProject(dto.getProject());
-        record.setDate(dto.getDate());
-        record.setRemark(dto.getRemark());
+        applyUpsert(record, dto);
         financeRecordMapper.updateById(record);
         homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
     }
@@ -292,6 +278,29 @@ public class FinanceServiceImpl implements FinanceService {
         if (!VALID_TYPES.contains(type)) {
             throw new BusinessException("收支类型必须为 income 或 expense");
         }
+    }
+
+    private void applyUpsert(FinanceRecord record, FinanceCreateDTO dto) {
+        String normalizedType = normalizeRequired(dto.getType());
+        validateType(normalizedType);
+
+        record.setType(normalizedType);
+        record.setAmount(dto.getAmount());
+        record.setCategory(normalizeRequired(dto.getCategory()));
+        record.setProject(trimToNull(dto.getProject()));
+        record.setDate(dto.getDate());
+        record.setRemark(trimToNull(dto.getRemark()));
+    }
+
+    private String normalizeRequired(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    private String trimToNull(String value) {
+        if (StrUtil.isBlank(value)) {
+            return null;
+        }
+        return value.trim();
     }
 
     private FinanceRecordVO toVO(FinanceRecord record) {

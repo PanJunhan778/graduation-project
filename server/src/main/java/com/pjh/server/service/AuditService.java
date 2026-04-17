@@ -1,13 +1,13 @@
 package com.pjh.server.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.pjh.server.vo.AuditLogVO;
+import com.pjh.server.vo.AuditOperationVO;
 
 import java.time.LocalDate;
 
 public interface AuditService {
 
-    IPage<AuditLogVO> listAuditLogs(
+    IPage<AuditOperationVO> listAuditLogs(
             int page,
             int size,
             String module,

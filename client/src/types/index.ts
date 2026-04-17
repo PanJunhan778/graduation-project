@@ -225,17 +225,22 @@ export type AuditModule = 'finance' | 'employee' | 'tax'
 export type AuditOperationType = 'CREATE' | 'UPDATE' | 'DELETE'
 
 /** 审计日志列表项 */
-export interface AuditLogVO {
+export interface AuditFieldChangeVO {
+  fieldName: string
+  oldValue: string | null
+  newValue: string | null
+}
+
+export interface AuditOperationVO {
   id: number
   module: AuditModule
   operationType: AuditOperationType
   targetId: number
-  fieldName: string
-  oldValue: string | null
-  newValue: string | null
   operationTime: string
   userId: number
   operatorName: string
+  changeCount: number
+  changes: AuditFieldChangeVO[]
 }
 
 /** 首页趋势点 */

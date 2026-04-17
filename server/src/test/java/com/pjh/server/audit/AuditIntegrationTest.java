@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,7 +59,7 @@ class AuditIntegrationTest {
 
         financeService.updateRecord(1L, dto);
 
-        verify(auditLogMapper, timeout(2000)).insert(any());
+        verify(auditLogMapper, timeout(2000).times(1)).insert(any());
     }
 
     @Test
@@ -79,7 +80,7 @@ class AuditIntegrationTest {
 
         financeService.updateRecord(2L, dto);
 
-        verify(auditLogMapper, timeout(2000)).insert(any());
+        verify(auditLogMapper, timeout(2000).times(1)).insert(any());
     }
 
     private void loginAsOwner() {

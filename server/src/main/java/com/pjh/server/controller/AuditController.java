@@ -4,7 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.pjh.server.common.Result;
 import com.pjh.server.service.AuditService;
-import com.pjh.server.vo.AuditLogVO;
+import com.pjh.server.vo.AuditOperationVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,7 +23,7 @@ public class AuditController {
     private final AuditService auditService;
 
     @GetMapping("/list")
-    public Result<IPage<AuditLogVO>> list(
+    public Result<IPage<AuditOperationVO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String module,

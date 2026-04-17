@@ -5,14 +5,19 @@ import { RefreshRight, Search } from '@element-plus/icons-vue'
 import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
 import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import { getAuditLogList } from '@/api/audit'
-import type { AuditLogVO, AuditModule, AuditOperationType } from '@/types'
+import type {
+  AuditFieldChangeVO,
+  AuditModule,
+  AuditOperationType,
+  AuditOperationVO,
+} from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 
 const loading = ref(false)
 const hasLoaded = ref(false)
-const tableData = ref<AuditLogVO[]>([])
+const tableData = ref<AuditOperationVO[]>([])
 const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
@@ -42,12 +47,12 @@ const operationTypeOptions: Array<{ label: string; value: AuditOperationType }> 
 
 const pageSubtitle = computed(() => {
   if (!hasLoaded.value) {
-    return '默认展示最近 7 天的新增、编辑、删除日志；不记录查询行为'
+    return '默认展示最近 7 天的新增、编辑、删除日志；查询行为不会被记录。'
   }
   if (!filters.module && !filters.operationType && !filters.dateRange) {
-    return '当前展示全部审计日志'
+    return '当前展示全部审计日志，并按一次操作聚合展示字段变化。'
   }
-  return '支持按模块、操作类型和日期区间筛选当前公司内的增删改日志'
+  return '支持按模块、操作类型和日期区间筛选当前公司的增删改日志。'
 })
 
 async function fetchList() {
@@ -209,6 +214,18 @@ function formatFieldLabel(fieldName: string) {
   return fieldMap[fieldName] || fieldName
 }
 
+function formatChangeSummary(changes: AuditFieldChangeVO[]) {
+  if (!changes.length) {
+    return '--'
+  }
+
+  const labels = [...new Set(changes.map((change) => formatFieldLabel(change.fieldName)))]
+  if (labels.length <= 3) {
+    return labels.join('、')
+  }
+  return `${labels.slice(0, 3).join('、')} 等 ${labels.length} 项`
+}
+
 function displayValue(value: string | null) {
   return value?.trim() ? value : '--'
 }
@@ -220,7 +237,7 @@ onMounted(initFromRouteQuery)
   <PageTableSkeleton
     v-if="showInitialSkeleton"
     title="审计日志"
-    subtitle="默认展示最近 7 天的新增、编辑、删除日志；不记录查询行为"
+    subtitle="默认展示最近 7 天的新增、编辑、删除日志；查询行为不会被记录。"
     :action-count="2"
     :filter-count="3"
     :show-search="false"
@@ -275,17 +292,17 @@ onMounted(initFromRouteQuery)
         <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
         <el-button :icon="RefreshRight" @click="handleReset">重置</el-button>
       </div>
-      <p class="filter-tip">清空模块、操作类型和日期后再次查询，可查看全部日志。</p>
+      <p class="filter-tip">每一行代表一次操作，展开后可查看该次操作下的所有字段差异。</p>
     </div>
 
     <div v-if="!hasLoaded && !loading" class="empty-wrapper">
-      <el-empty description="已清空筛选条件，点击查询可查看全部日志" />
+      <el-empty description="已清空筛选条件，点击查询可查看全部日志。" />
     </div>
 
     <template v-else>
-    <el-table
-      :data="tableData"
-      style="width: 100%"
+      <el-table
+        :data="tableData"
+        style="width: 100%"
         :header-cell-style="{
           background: '#f6f5f4',
           color: '#615d59',
@@ -295,6 +312,33 @@ onMounted(initFromRouteQuery)
         }"
         :row-style="{ height: '52px' }"
       >
+        <el-table-column type="expand" width="56">
+          <template #default="{ row }">
+            <div class="expand-panel">
+              <div class="expand-header">
+                <span class="expand-title">字段变化明细</span>
+                <span class="expand-count">{{ row.changeCount }} 项变更</span>
+              </div>
+              <el-table :data="row.changes" size="small" border class="change-table">
+                <el-table-column label="变更字段" min-width="140">
+                  <template #default="{ row: change }">
+                    {{ formatFieldLabel(change.fieldName) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="修改前" min-width="220" show-overflow-tooltip>
+                  <template #default="{ row: change }">
+                    <span class="value-before">{{ displayValue(change.oldValue) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="修改后" min-width="220" show-overflow-tooltip>
+                  <template #default="{ row: change }">
+                    <span class="value-after">{{ displayValue(change.newValue) }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="operationTime" label="操作时间" width="180" />
         <el-table-column prop="operatorName" label="操作人" width="140" show-overflow-tooltip />
         <el-table-column label="模块" width="120">
@@ -310,19 +354,14 @@ onMounted(initFromRouteQuery)
           </template>
         </el-table-column>
         <el-table-column prop="targetId" label="目标记录 ID" width="120" />
-        <el-table-column label="变更字段" width="140">
+        <el-table-column label="变更项数" width="110" align="center">
           <template #default="{ row }">
-            {{ formatFieldLabel(row.fieldName) }}
+            <span class="change-count">{{ row.changeCount }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="修改前" min-width="220" show-overflow-tooltip>
+        <el-table-column label="字段摘要" min-width="260" show-overflow-tooltip>
           <template #default="{ row }">
-            <span class="value-before">{{ displayValue(row.oldValue) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="修改后" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="value-after">{{ displayValue(row.newValue) }}</span>
+            {{ formatChangeSummary(row.changes) }}
           </template>
         </el-table-column>
       </el-table>
@@ -398,6 +437,34 @@ onMounted(initFromRouteQuery)
   border-radius: 10px;
 }
 
+.expand-panel {
+  padding: 12px 18px 18px;
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.04), rgba(15, 118, 110, 0.01));
+}
+
+.expand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.expand-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #383430;
+}
+
+.expand-count,
+.change-count {
+  font-weight: 600;
+  color: #0f766e;
+}
+
+.change-table {
+  width: 100%;
+}
+
 .pagination-wrapper {
   display: flex;
   justify-content: flex-end;
@@ -430,5 +497,13 @@ onMounted(initFromRouteQuery)
 
 :deep(.el-table th.el-table__cell) {
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+:deep(.el-table__expanded-cell) {
+  padding: 0 !important;
+}
+
+:deep(.change-table .el-table__cell) {
+  background: rgba(255, 255, 255, 0.9);
 }
 </style>

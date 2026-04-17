@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -58,6 +60,25 @@ class AuditDiffBuilderTest {
                 before,
                 after,
                 new String[]{"type", "amount", "category", "project", "date", "remark"}
+        );
+
+        assertTrue(changes.isEmpty());
+    }
+
+    @Test
+    void buildChangesShouldTreatNullAndBlankStringAsTheSameOptionalValue() {
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("project", null);
+        before.put("remark", null);
+
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("project", "");
+        after.put("remark", "   ");
+
+        List<AuditFieldChange> changes = auditDiffBuilder.buildChanges(
+                before,
+                after,
+                new String[]{"project", "remark"}
         );
 
         assertTrue(changes.isEmpty());

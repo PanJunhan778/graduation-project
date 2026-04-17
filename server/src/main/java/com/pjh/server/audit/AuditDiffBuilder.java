@@ -87,6 +87,8 @@ public class AuditDiffBuilder {
     }
 
     private boolean isSameValue(Object oldValue, Object newValue) {
+        oldValue = normalizeComparableValue(oldValue);
+        newValue = normalizeComparableValue(newValue);
         if (oldValue instanceof BigDecimal oldAmount && newValue instanceof BigDecimal newAmount) {
             return oldAmount.compareTo(newAmount) == 0;
         }
@@ -96,6 +98,10 @@ public class AuditDiffBuilder {
     private String formatValue(Object value) {
         if (value == null) {
             return null;
+        }
+        if (value instanceof CharSequence text) {
+            String stringValue = text.toString();
+            return stringValue.isBlank() ? null : stringValue;
         }
         if (value instanceof BigDecimal amount) {
             return amount.stripTrailingZeros().toPlainString();
@@ -107,5 +113,13 @@ public class AuditDiffBuilder {
             return dateTime.format(DATE_TIME_FMT);
         }
         return String.valueOf(value);
+    }
+
+    private Object normalizeComparableValue(Object value) {
+        if (value instanceof CharSequence text) {
+            String stringValue = text.toString();
+            return stringValue.isBlank() ? null : stringValue;
+        }
+        return value;
     }
 }

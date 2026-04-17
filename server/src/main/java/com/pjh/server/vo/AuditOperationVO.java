@@ -4,9 +4,10 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
-public class AuditLogVO {
+public class AuditOperationVO {
 
     private Long id;
 
@@ -16,16 +17,14 @@ public class AuditLogVO {
 
     private Long targetId;
 
-    private String fieldName;
-
-    private String oldValue;
-
-    private String newValue;
-
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime operationTime;
 
     private Long userId;
 
     private String operatorName;
+
+    private int changeCount;
+
+    private List<AuditFieldChangeVO> changes;
 }

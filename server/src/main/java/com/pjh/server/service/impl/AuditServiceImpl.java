@@ -1,9 +1,11 @@
 package com.pjh.server.service.impl;
 
 import cn.hutool.core.util.StrUtil;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.pjh.server.audit.AuditOperationGroupKey;
+import com.pjh.server.audit.AuditOperationGroupQuery;
+import com.pjh.server.audit.AuditOperationGroupRow;
 import com.pjh.server.entity.AuditLog;
 import com.pjh.server.entity.User;
 import com.pjh.server.exception.BusinessException;
@@ -11,12 +13,14 @@ import com.pjh.server.mapper.AuditLogMapper;
 import com.pjh.server.mapper.UserMapper;
 import com.pjh.server.service.AuditService;
 import com.pjh.server.util.CurrentSessionService;
-import com.pjh.server.vo.AuditLogVO;
+import com.pjh.server.vo.AuditFieldChangeVO;
+import com.pjh.server.vo.AuditOperationVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,7 +39,7 @@ public class AuditServiceImpl implements AuditService {
     private final CurrentSessionService currentSessionService;
 
     @Override
-    public IPage<AuditLogVO> listAuditLogs(
+    public IPage<AuditOperationVO> listAuditLogs(
             int page,
             int size,
             String module,
@@ -50,33 +54,46 @@ public class AuditServiceImpl implements AuditService {
         Long companyId = currentSessionService.requireCurrentCompanyId();
         LocalDateTime startDateTime = startDate == null ? null : startDate.atStartOfDay();
         LocalDateTime endExclusive = endDate == null ? null : endDate.plusDays(1).atStartOfDay();
+        AuditOperationGroupQuery query = new AuditOperationGroupQuery(
+                companyId,
+                normalizedModule,
+                normalizedOperationType,
+                startDateTime,
+                endExclusive,
+                (long) (page - 1) * size,
+                size
+        );
+        Page<AuditOperationVO> resultPage = new Page<>(page, size);
+        long total = auditLogMapper.countOperationGroups(query);
+        resultPage.setTotal(total);
+        if (total == 0) {
+            resultPage.setRecords(List.of());
+            return resultPage;
+        }
 
-        LambdaQueryWrapper<AuditLog> wrapper = new LambdaQueryWrapper<AuditLog>()
-                .eq(AuditLog::getCompanyId, companyId)
-                .eq(normalizedModule != null, AuditLog::getModule, normalizedModule)
-                .eq(normalizedOperationType != null, AuditLog::getOperationType, normalizedOperationType)
-                .ge(startDateTime != null, AuditLog::getOperationTime, startDateTime)
-                .lt(endExclusive != null, AuditLog::getOperationTime, endExclusive)
-                .orderByDesc(AuditLog::getOperationTime)
-                .orderByDesc(AuditLog::getId);
+        List<AuditOperationGroupRow> operationGroups = auditLogMapper.selectOperationGroups(query);
+        if (operationGroups.isEmpty()) {
+            resultPage.setRecords(List.of());
+            return resultPage;
+        }
 
-        IPage<AuditLog> auditPage = auditLogMapper.selectPage(new Page<>(page, size), wrapper);
-        Map<Long, User> userMap = resolveUserMap(auditPage.getRecords());
+        Map<Long, User> userMap = resolveUserMap(operationGroups.stream()
+                .map(AuditOperationGroupRow::getUserId)
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .toList());
+        List<AuditOperationGroupKey> groupKeys = operationGroups.stream()
+                .map(this::toGroupKey)
+                .toList();
+        Map<AuditOperationGroupKey, List<AuditLog>> logsByGroup = auditLogMapper
+                .selectByOperationGroups(companyId, groupKeys)
+                .stream()
+                .collect(Collectors.groupingBy(this::toGroupKey, LinkedHashMap::new, Collectors.toList()));
 
-        return auditPage.convert(log -> {
-            AuditLogVO vo = new AuditLogVO();
-            vo.setId(log.getId());
-            vo.setModule(log.getModule());
-            vo.setOperationType(log.getOperationType());
-            vo.setTargetId(log.getTargetId());
-            vo.setFieldName(log.getFieldName());
-            vo.setOldValue(log.getOldValue());
-            vo.setNewValue(log.getNewValue());
-            vo.setOperationTime(log.getOperationTime());
-            vo.setUserId(log.getUserId());
-            vo.setOperatorName(resolveOperatorName(log.getUserId(), userMap.get(log.getUserId())));
-            return vo;
-        });
+        resultPage.setRecords(operationGroups.stream()
+                .map(group -> toOperationVO(group, logsByGroup.getOrDefault(toGroupKey(group), List.of()), userMap))
+                .toList());
+        return resultPage;
     }
 
     private String validateAndNormalizeModule(String module) {
@@ -109,17 +126,58 @@ public class AuditServiceImpl implements AuditService {
         }
     }
 
-    private Map<Long, User> resolveUserMap(List<AuditLog> records) {
-        List<Long> userIds = records.stream()
-                .map(AuditLog::getUserId)
-                .filter(id -> id != null && id > 0)
-                .distinct()
-                .toList();
+    private Map<Long, User> resolveUserMap(List<Long> userIds) {
         if (userIds.isEmpty()) {
             return Map.of();
         }
         return userMapper.selectBatchIds(userIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
+    }
+
+    private AuditOperationVO toOperationVO(
+            AuditOperationGroupRow group,
+            List<AuditLog> auditLogs,
+            Map<Long, User> userMap
+    ) {
+        AuditOperationVO vo = new AuditOperationVO();
+        vo.setId(group.getMaxId());
+        vo.setModule(group.getModule());
+        vo.setOperationType(group.getOperationType());
+        vo.setTargetId(group.getTargetId());
+        vo.setOperationTime(group.getOperationTime());
+        vo.setUserId(group.getUserId());
+        vo.setOperatorName(resolveOperatorName(group.getUserId(), userMap.get(group.getUserId())));
+        vo.setChangeCount(group.getChangeCount() == null ? auditLogs.size() : group.getChangeCount().intValue());
+        vo.setChanges(auditLogs.stream().map(this::toFieldChangeVO).toList());
+        return vo;
+    }
+
+    private AuditFieldChangeVO toFieldChangeVO(AuditLog log) {
+        AuditFieldChangeVO vo = new AuditFieldChangeVO();
+        vo.setFieldName(log.getFieldName());
+        vo.setOldValue(log.getOldValue());
+        vo.setNewValue(log.getNewValue());
+        return vo;
+    }
+
+    private AuditOperationGroupKey toGroupKey(AuditOperationGroupRow group) {
+        return new AuditOperationGroupKey(
+                group.getModule(),
+                group.getOperationType(),
+                group.getTargetId(),
+                group.getUserId(),
+                group.getOperationTime()
+        );
+    }
+
+    private AuditOperationGroupKey toGroupKey(AuditLog log) {
+        return new AuditOperationGroupKey(
+                log.getModule(),
+                log.getOperationType(),
+                log.getTargetId(),
+                log.getUserId(),
+                log.getOperationTime()
+        );
     }
 
     private String resolveOperatorName(Long userId, User user) {
