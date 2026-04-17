@@ -1,7 +1,6 @@
 package com.pjh.server.ai;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +25,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -50,7 +50,7 @@ public class AiToolFacade {
 
     public List<ToolSpecification> toolSpecifications() {
         return List.of(
-                tool("query_financial_records", "Query raw finance records for the current company. Return at most 50 items.",
+                tool("query_financial_records", "Query raw finance records for the current company. Return at most 50 items. Use this for evidence or sample records, not authoritative period totals.",
                         Map.of(
                                 "startDate", stringProperty("Start date in yyyy-MM-dd"),
                                 "endDate", stringProperty("End date in yyyy-MM-dd"),
@@ -74,7 +74,7 @@ public class AiToolFacade {
                                 "startDate", stringProperty("Start date in yyyy-MM-dd"),
                                 "endDate", stringProperty("End date in yyyy-MM-dd")
                         )),
-                tool("calculate_financial_sum", "Calculate finance sums in Java and optionally group them.",
+                tool("calculate_financial_sum", "Calculate authoritative finance totals for the current company in Java. Return grandTotal, recordCount, minDate, maxDate, and groupedTotals. Always use this first for year/month/date-range income-expense summaries.",
                         Map.of(
                                 "startDate", stringProperty("Start date in yyyy-MM-dd"),
                                 "endDate", stringProperty("End date in yyyy-MM-dd"),
@@ -114,7 +114,7 @@ public class AiToolFacade {
             case AiConstants.ACTION_TYPE_UPDATE_COMPANY_DESCRIPTION -> AiToolExecutionOutcome.pendingUpdate(
                     requiredText(arguments, "newDescription")
             );
-            default -> throw new BusinessException("不支持的 AI 工具：" + request.name());
+            default -> throw new BusinessException("不支持的 AI 工具: " + request.name());
         };
     }
 
@@ -238,31 +238,64 @@ public class AiToolFacade {
 
     private String calculateFinancialSum(Long companyId, JsonNode arguments) {
         String groupBy = optionalText(arguments, "groupBy").orElse("category");
-        String groupColumn = switch (groupBy) {
-            case "category" -> "category";
-            case "project" -> "project";
-            case "date" -> "date";
-            case "type" -> "type";
-            default -> throw new BusinessException("calculate_financial_sum 的 groupBy 不合法");
-        };
+        validateFinancialGroupBy(groupBy);
 
-        QueryWrapper<FinanceRecord> wrapper = new QueryWrapper<>();
-        wrapper.select(groupColumn + " AS group_key", "COALESCE(SUM(amount), 0) AS total")
-                .eq("company_id", companyId)
-                .groupBy(groupColumn)
-                .orderByDesc("total");
+        Optional<String> type = optionalText(arguments, "type");
+        Optional<LocalDate> startDate = optionalDate(arguments, "startDate");
+        Optional<LocalDate> endDate = optionalDate(arguments, "endDate");
 
-        optionalText(arguments, "type").ifPresent(type -> wrapper.eq("type", type));
-        optionalDate(arguments, "startDate").ifPresent(date -> wrapper.ge("date", date));
-        optionalDate(arguments, "endDate").ifPresent(date -> wrapper.le("date", date));
+        LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<FinanceRecord>()
+                .eq(FinanceRecord::getCompanyId, companyId)
+                .orderByAsc(FinanceRecord::getDate)
+                .orderByAsc(FinanceRecord::getId);
 
-        Map<String, BigDecimal> result = new LinkedHashMap<>();
-        for (Map<String, Object> row : financeRecordMapper.selectMaps(wrapper)) {
-            String key = row.get("group_key") == null || row.get("group_key").toString().isBlank()
-                    ? "未分类"
-                    : row.get("group_key").toString();
-            result.put(key, readBigDecimal(row.get("total")));
+        type.ifPresent(value -> wrapper.eq(FinanceRecord::getType, value));
+        startDate.ifPresent(value -> wrapper.ge(FinanceRecord::getDate, value));
+        endDate.ifPresent(value -> wrapper.le(FinanceRecord::getDate, value));
+
+        List<FinanceRecord> records = financeRecordMapper.selectList(wrapper);
+        Map<String, BigDecimal> groupedTotals = new LinkedHashMap<>();
+        BigDecimal grandTotal = BigDecimal.ZERO;
+        LocalDate minDate = null;
+        LocalDate maxDate = null;
+
+        for (FinanceRecord record : records) {
+            BigDecimal amount = record.getAmount() == null ? BigDecimal.ZERO : record.getAmount();
+            grandTotal = grandTotal.add(amount);
+
+            LocalDate recordDate = record.getDate();
+            if (recordDate != null) {
+                if (minDate == null || recordDate.isBefore(minDate)) {
+                    minDate = recordDate;
+                }
+                if (maxDate == null || recordDate.isAfter(maxDate)) {
+                    maxDate = recordDate;
+                }
+            }
+
+            String groupKey = resolveFinancialGroupKey(record, groupBy);
+            groupedTotals.merge(groupKey, amount, BigDecimal::add);
         }
+
+        List<Map.Entry<String, BigDecimal>> sortedEntries = new ArrayList<>(groupedTotals.entrySet());
+        sortedEntries.sort(Map.Entry.<String, BigDecimal>comparingByValue(Comparator.reverseOrder())
+                .thenComparing(Map.Entry::getKey));
+
+        Map<String, BigDecimal> sortedGroupedTotals = new LinkedHashMap<>();
+        for (Map.Entry<String, BigDecimal> entry : sortedEntries) {
+            sortedGroupedTotals.put(entry.getKey(), entry.getValue());
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("groupBy", groupBy);
+        type.ifPresent(value -> result.put("type", value));
+        startDate.ifPresent(value -> result.put("requestedStartDate", value));
+        endDate.ifPresent(value -> result.put("requestedEndDate", value));
+        result.put("recordCount", records.size());
+        result.put("minDate", minDate);
+        result.put("maxDate", maxDate);
+        result.put("grandTotal", grandTotal);
+        result.put("groupedTotals", sortedGroupedTotals);
         return writeJson(result);
     }
 
@@ -381,7 +414,7 @@ public class AiToolFacade {
 
     private Map<String, Object> enumProperty(String description, List<?> values) {
         Map<String, Object> property = new LinkedHashMap<>();
-        Object firstValue = values.isEmpty() ? null : values.getFirst();
+        Object firstValue = values.isEmpty() ? null : values.get(0);
         property.put("type", firstValue instanceof Integer ? "integer" : "string");
         property.put("description", description);
         property.put("enum", values.toArray());
@@ -409,14 +442,14 @@ public class AiToolFacade {
 
     private String requiredText(JsonNode arguments, String fieldName) {
         return optionalText(arguments, fieldName)
-                .orElseThrow(() -> new BusinessException("AI 工具缺少参数：" + fieldName));
+                .orElseThrow(() -> new BusinessException("AI 工具缺少参数: " + fieldName));
     }
 
     private Optional<LocalDate> optionalDate(JsonNode arguments, String fieldName) {
         try {
             return optionalText(arguments, fieldName).map(LocalDate::parse);
         } catch (DateTimeParseException e) {
-            throw new BusinessException("日期参数格式错误：" + fieldName);
+            throw new BusinessException("日期参数格式错误: " + fieldName);
         }
     }
 
@@ -468,7 +501,27 @@ public class AiToolFacade {
             return Integer.parseInt(annualMatcher.group(1)) * 100 + 12;
         }
 
-        throw new BusinessException("税期格式不合法：" + taxPeriod);
+        throw new BusinessException("税期格式不合法: " + taxPeriod);
+    }
+
+    private void validateFinancialGroupBy(String groupBy) {
+        if (!List.of("category", "project", "date", "type").contains(groupBy)) {
+            throw new BusinessException("calculate_financial_sum 的 groupBy 不合法");
+        }
+    }
+
+    private String resolveFinancialGroupKey(FinanceRecord record, String groupBy) {
+        return switch (groupBy) {
+            case "category" -> normalizeGroupKey(record.getCategory());
+            case "project" -> normalizeGroupKey(record.getProject());
+            case "date" -> record.getDate() == null ? "未设置日期" : record.getDate().toString();
+            case "type" -> normalizeGroupKey(record.getType());
+            default -> throw new BusinessException("calculate_financial_sum 的 groupBy 不合法");
+        };
+    }
+
+    private String normalizeGroupKey(String value) {
+        return value == null || value.isBlank() ? "未分类" : value;
     }
 
     private BigDecimal readBigDecimal(Object value) {

@@ -1,84 +1,112 @@
 <template>
   <div class="ai-skeleton">
-    <aside class="ai-skeleton__rail ds-card">
-      <div class="sk-block sk-brand" />
-      <div class="sk-block sk-new-chat" />
+    <div class="ai-skeleton__shell ds-card">
+      <aside class="ai-skeleton__history">
+        <div class="ai-skeleton__history-head">
+          <div>
+            <div class="sk-block sk-eyebrow" />
+            <div class="sk-block sk-brand" />
+          </div>
+          <div class="sk-block sk-round" />
+        </div>
 
-      <div class="ai-skeleton__list">
-        <div
-          v-for="item in 6"
-          :key="item"
-          class="ai-skeleton__session"
-        >
-          <div class="sk-block sk-avatar" />
-          <div class="ai-skeleton__session-text">
-            <div class="sk-block sk-session-title" />
-            <div class="sk-block sk-session-line" />
+        <div class="sk-block sk-new-chat" />
+
+        <div class="ai-skeleton__list">
+          <div
+            v-for="item in 6"
+            :key="item"
+            class="ai-skeleton__session"
+          >
+            <div class="sk-block sk-avatar" />
+            <div class="ai-skeleton__session-text">
+              <div class="sk-block sk-session-title" />
+              <div class="sk-block sk-session-line" />
+            </div>
           </div>
         </div>
-      </div>
-    </aside>
+      </aside>
 
-    <section class="ai-skeleton__workbench ds-card">
-      <div class="ai-skeleton__toolbar">
-        <div>
-          <div class="sk-block sk-toolbar-meta" />
-          <div class="sk-block sk-toolbar-title" />
+      <section class="ai-skeleton__chat">
+        <div class="ai-skeleton__toolbar">
+          <div>
+            <div class="sk-block sk-toolbar-meta" />
+            <div class="sk-block sk-toolbar-title" />
+          </div>
+          <div class="ai-skeleton__toolbar-actions">
+            <div class="sk-block sk-round" />
+            <div class="sk-block sk-toolbar-action" />
+          </div>
         </div>
-        <div class="sk-block sk-toolbar-action" />
-      </div>
 
-      <div class="ai-skeleton__messages">
-        <div class="ai-skeleton__bubble ai-skeleton__bubble--assistant">
-          <div class="sk-block sk-bubble-line long" />
-          <div class="sk-block sk-bubble-line medium" />
-          <div class="sk-block sk-bubble-line short" />
+        <div class="ai-skeleton__messages">
+          <div class="ai-skeleton__bubble ai-skeleton__bubble--assistant">
+            <div class="sk-block sk-bubble-line long" />
+            <div class="sk-block sk-bubble-line medium" />
+            <div class="sk-block sk-bubble-line short" />
+          </div>
+          <div class="ai-skeleton__bubble ai-skeleton__bubble--user">
+            <div class="sk-block sk-bubble-line medium" />
+            <div class="sk-block sk-bubble-line short" />
+          </div>
+          <div class="ai-skeleton__bubble ai-skeleton__bubble--assistant">
+            <div class="sk-block sk-bubble-line long" />
+            <div class="sk-block sk-bubble-line long" />
+            <div class="sk-block sk-bubble-line medium" />
+          </div>
         </div>
-        <div class="ai-skeleton__bubble ai-skeleton__bubble--user">
-          <div class="sk-block sk-bubble-line medium" />
-          <div class="sk-block sk-bubble-line short" />
-        </div>
-        <div class="ai-skeleton__bubble ai-skeleton__bubble--assistant">
-          <div class="sk-block sk-bubble-line long" />
-          <div class="sk-block sk-bubble-line long" />
-          <div class="sk-block sk-bubble-line medium" />
-        </div>
-      </div>
 
-      <div class="ai-skeleton__composer">
-        <div class="sk-block sk-composer" />
-        <div class="sk-block sk-send" />
-      </div>
-    </section>
+        <div class="ai-skeleton__composer">
+          <div class="sk-block sk-composer" />
+          <div class="sk-block sk-send" />
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .ai-skeleton {
-  display: grid;
-  grid-template-columns: 256px minmax(0, 1fr);
-  gap: 18px;
   width: 100%;
   height: 100%;
   min-height: 0;
 }
 
-.ai-skeleton__rail,
-.ai-skeleton__workbench {
-  padding: 18px;
+.ai-skeleton__shell {
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
+  border-radius: 32px;
+  border-color: rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(251, 250, 248, 0.98) 100%);
 }
 
-.ai-skeleton__rail {
+.ai-skeleton__history {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  min-height: 0;
+  padding: 18px 14px 14px;
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 245, 241, 0.92) 100%);
+}
+
+.ai-skeleton__history-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .ai-skeleton__list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-top: 18px;
 }
 
 .ai-skeleton__session {
@@ -97,13 +125,13 @@
   gap: 8px;
 }
 
-.ai-skeleton__workbench {
+.ai-skeleton__chat {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
+  min-height: 0;
   background:
-    radial-gradient(circle at top, rgba(15, 98, 214, 0.05), transparent 34%),
-    linear-gradient(180deg, #ffffff 0%, #fbfaf9 100%);
+    radial-gradient(circle at top, rgba(15, 98, 214, 0.05), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(251, 250, 249, 0.98) 100%);
 }
 
 .ai-skeleton__toolbar {
@@ -111,15 +139,21 @@
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  padding-bottom: 14px;
+  padding: 18px 24px 14px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.ai-skeleton__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .ai-skeleton__messages {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 12px 8px;
+  padding: 24px;
 }
 
 .ai-skeleton__bubble {
@@ -146,6 +180,8 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: center;
+  padding: 16px 22px 20px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .sk-block {
@@ -164,14 +200,27 @@
   animation: shimmer 1.4s ease infinite;
 }
 
+.sk-eyebrow {
+  width: 92px;
+  height: 12px;
+}
+
 .sk-brand {
   width: 124px;
   height: 26px;
+  margin-top: 10px;
+}
+
+.sk-round {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
 }
 
 .sk-new-chat {
   width: 100%;
   height: 40px;
+  margin-top: 18px;
 }
 
 .sk-avatar {
@@ -224,7 +273,7 @@
 
 .sk-composer {
   height: 82px;
-  border-radius: 28px;
+  border-radius: 26px;
 }
 
 .sk-send {
@@ -238,17 +287,53 @@
   }
 }
 
-@media (max-width: 960px) {
-  .ai-skeleton {
+@media (max-width: 1100px) {
+  .ai-skeleton__shell {
     grid-template-columns: 1fr;
+    border-radius: 26px;
   }
 
-  .ai-skeleton__rail {
+  .ai-skeleton__history {
     display: none;
+  }
+
+  .ai-skeleton__toolbar {
+    padding: 16px 20px 12px;
+  }
+
+  .ai-skeleton__messages {
+    padding: 22px 20px;
+  }
+
+  .ai-skeleton__bubble {
+    max-width: 82%;
+  }
+
+  .ai-skeleton__composer {
+    padding: 14px 18px 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  .ai-skeleton__shell {
+    border-radius: 22px;
+  }
+
+  .ai-skeleton__toolbar {
+    padding: 14px 16px 12px;
+  }
+
+  .ai-skeleton__messages {
+    padding: 20px 16px;
   }
 
   .ai-skeleton__bubble {
     max-width: 100%;
+  }
+
+  .ai-skeleton__composer {
+    grid-template-columns: 1fr;
+    padding: 12px 14px 14px;
   }
 }
 </style>

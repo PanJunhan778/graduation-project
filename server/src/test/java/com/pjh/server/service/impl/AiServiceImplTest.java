@@ -1,5 +1,6 @@
 package com.pjh.server.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pjh.server.ai.AiActionRequiredPayload;
 import com.pjh.server.ai.AiPromptBuilder;
 import com.pjh.server.ai.AiToolExecutionOutcome;
@@ -72,9 +73,11 @@ class AiServiceImplTest {
     private OpenAiChatModel chatModel;
 
     private AiServiceImpl aiService;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
+        objectMapper = new ObjectMapper();
         aiService = new AiServiceImpl(
                 currentSessionService,
                 companyMapper,
@@ -83,7 +86,8 @@ class AiServiceImplTest {
                 aiPromptBuilder,
                 aiToolFacade,
                 aiProperties,
-                chatModelProvider
+                chatModelProvider,
+                objectMapper
         );
     }
 

@@ -25,6 +25,8 @@ import {
   RefreshRight,
 } from '@element-plus/icons-vue'
 
+const COMPACT_HISTORY_MEDIA = '(max-width: 1100px)'
+
 const markdown = new MarkdownIt({
   html: false,
   linkify: true,
@@ -50,8 +52,14 @@ const requestAbortController = ref<AbortController | null>(null)
 const confirmingActionId = ref<number | null>(null)
 const deletingSessionId = ref('')
 const isHistoryCollapsed = ref(false)
+const isCompactScreen = ref(
+  typeof window !== 'undefined' ? window.matchMedia(COMPACT_HISTORY_MEDIA).matches : false,
+)
+const isCompactHistoryOpen = ref(false)
 const messageStreamRef = ref<HTMLElement | null>(null)
 const hasInitialized = ref(false)
+
+let compactHistoryMediaQuery: MediaQueryList | null = null
 
 const activeSession = computed(
   () => sessions.value.find((item) => item.sessionId === activeSessionId.value) || null,
@@ -68,6 +76,14 @@ const toolbarStatus = computed(() => {
 const showInitialSkeleton = useDelayedLoading(
   () => !hasInitialized.value && (loadingSessions.value || loadingMessages.value),
 )
+const showHistoryDetails = computed(() => isCompactScreen.value || !isHistoryCollapsed.value)
+const showToolbarHistoryToggle = computed(() => isCompactScreen.value || isHistoryCollapsed.value)
+const historyToggleTitle = computed(() => {
+  if (isCompactScreen.value) {
+    return isCompactHistoryOpen.value ? '关闭历史' : '展开历史'
+  }
+  return isHistoryCollapsed.value ? '展开历史' : '收起历史'
+})
 
 watch(
   messages,
@@ -85,11 +101,13 @@ watch(isThinking, async (value) => {
 })
 
 onMounted(async () => {
+  setupCompactHistoryMedia()
   await initializePage()
 })
 
 onBeforeUnmount(() => {
   cancelActiveRequest()
+  tearDownCompactHistoryMedia()
 })
 
 async function initializePage() {
@@ -170,12 +188,14 @@ async function loadMessages(sessionId: string) {
 
 async function selectSession(sessionId: string) {
   if (sessionId === activeSessionId.value && messages.value.length > 0) {
+    closeCompactHistory()
     return
   }
 
   cancelActiveRequest()
   activeSessionId.value = sessionId
   await loadMessages(sessionId)
+  closeCompactHistory()
 }
 
 function startNewConversation() {
@@ -183,6 +203,7 @@ function startNewConversation() {
   activeSessionId.value = ''
   messages.value = []
   inputMessage.value = ''
+  closeCompactHistory()
 }
 
 async function handleSendMessage() {
@@ -339,7 +360,17 @@ function cancelActiveRequest() {
 }
 
 function toggleHistoryRail() {
+  if (isCompactScreen.value) {
+    isCompactHistoryOpen.value = !isCompactHistoryOpen.value
+    return
+  }
   isHistoryCollapsed.value = !isHistoryCollapsed.value
+}
+
+function closeCompactHistory() {
+  if (isCompactScreen.value) {
+    isCompactHistoryOpen.value = false
+  }
 }
 
 function handleChipClick(chip: string) {
@@ -403,34 +434,72 @@ function scrollToBottom() {
   if (!container) return
   container.scrollTop = container.scrollHeight
 }
+
+function setupCompactHistoryMedia() {
+  if (typeof window === 'undefined') return
+
+  compactHistoryMediaQuery = window.matchMedia(COMPACT_HISTORY_MEDIA)
+  syncCompactHistoryMode(compactHistoryMediaQuery.matches)
+  compactHistoryMediaQuery.addEventListener('change', handleCompactHistoryMediaChange)
+}
+
+function tearDownCompactHistoryMedia() {
+  compactHistoryMediaQuery?.removeEventListener('change', handleCompactHistoryMediaChange)
+  compactHistoryMediaQuery = null
+}
+
+function handleCompactHistoryMediaChange(event: MediaQueryListEvent) {
+  syncCompactHistoryMode(event.matches)
+}
+
+function syncCompactHistoryMode(matches: boolean) {
+  isCompactScreen.value = matches
+  isCompactHistoryOpen.value = false
+}
 </script>
 
 <template>
   <AiWorkbenchSkeleton v-if="showInitialSkeleton" />
-  <div v-else class="ai-chat-page" :class="{ 'ai-chat-page--collapsed': isHistoryCollapsed }">
-    <aside class="history-rail" :class="{ 'history-rail--collapsed': isHistoryCollapsed }">
-      <header class="history-rail__header">
-        <div v-if="!isHistoryCollapsed" class="history-rail__heading">
+  <div
+    v-else
+    class="ai-chat-shell"
+    :class="{
+      'ai-chat-shell--history-collapsed': !isCompactScreen && isHistoryCollapsed,
+      'ai-chat-shell--compact': isCompactScreen,
+    }"
+  >
+    <div
+      v-if="isCompactScreen && isCompactHistoryOpen"
+      class="ai-chat-shell__backdrop"
+      @click="closeCompactHistory"
+    />
+
+    <aside
+      class="history-pane"
+      :class="{
+        'history-pane--collapsed': !isCompactScreen && isHistoryCollapsed,
+        'history-pane--compact': isCompactScreen,
+        'history-pane--compact-open': isCompactScreen && isCompactHistoryOpen,
+      }"
+    >
+      <header class="history-pane__header">
+        <div v-if="showHistoryDetails" class="history-pane__heading">
           <p class="eyebrow">AI Workspace</p>
           <h2>历史会话</h2>
         </div>
-        <div v-else class="history-rail__brand">AI</div>
+        <div v-else class="history-pane__brand">AI</div>
 
-        <el-button
-          circle
-          :title="isHistoryCollapsed ? '展开历史' : '收起历史'"
-          @click="toggleHistoryRail"
-        >
+        <el-button circle :title="historyToggleTitle" @click="toggleHistoryRail">
           <el-icon>
-            <Expand v-if="isHistoryCollapsed" />
+            <Expand v-if="isCompactScreen ? !isCompactHistoryOpen : isHistoryCollapsed" />
             <Fold v-else />
           </el-icon>
         </el-button>
       </header>
 
-      <el-button class="history-rail__new" type="primary" title="发起新对话" @click="startNewConversation">
+      <el-button class="history-pane__new" type="primary" title="发起新对话" @click="startNewConversation">
         <el-icon><Plus /></el-icon>
-        <span v-if="!isHistoryCollapsed">新对话</span>
+        <span v-if="showHistoryDetails">新对话</span>
       </el-button>
 
       <div class="history-list">
@@ -439,11 +508,11 @@ function scrollToBottom() {
             v-for="item in 5"
             :key="`history-skeleton-${item}`"
             class="history-item history-item--skeleton"
-            :class="{ 'history-item--collapsed': isHistoryCollapsed }"
+            :class="{ 'history-item--collapsed': !showHistoryDetails }"
           >
             <div class="history-item__button">
               <span class="history-item__avatar history-item__avatar--skeleton" />
-              <div v-if="!isHistoryCollapsed" class="history-item__content">
+              <div v-if="showHistoryDetails" class="history-item__content">
                 <div class="history-item__title-row">
                   <span class="history-skeleton history-skeleton--title" />
                 </div>
@@ -460,7 +529,7 @@ function scrollToBottom() {
             class="history-item"
             :class="{
               active: activeSessionId === session.sessionId,
-              'history-item--collapsed': isHistoryCollapsed,
+              'history-item--collapsed': !showHistoryDetails,
             }"
           >
             <button
@@ -471,7 +540,7 @@ function scrollToBottom() {
             >
               <span class="history-item__avatar">{{ getSessionInitial(session.title) }}</span>
 
-              <div v-if="!isHistoryCollapsed" class="history-item__content">
+              <div v-if="showHistoryDetails" class="history-item__content">
                 <div class="history-item__title-row">
                   <span class="history-item__title">{{ session.title }}</span>
                   <span class="history-item__time">{{ formatTime(session.lastMessageTime) }}</span>
@@ -481,7 +550,7 @@ function scrollToBottom() {
             </button>
 
             <el-button
-              v-if="!isHistoryCollapsed"
+              v-if="showHistoryDetails"
               class="history-item__delete"
               text
               circle
@@ -497,38 +566,41 @@ function scrollToBottom() {
           <div
             v-if="!loadingSessions && sessions.length === 0"
             class="history-empty"
-            :class="{ 'history-empty--collapsed': isHistoryCollapsed }"
+            :class="{ 'history-empty--collapsed': !showHistoryDetails }"
           >
-            <template v-if="isHistoryCollapsed">
-              <span class="history-empty__dot" />
-            </template>
-            <template v-else>
+            <template v-if="showHistoryDetails">
               <p>暂无历史对话</p>
               <span>从右侧发起一轮新对话后，这里会自动沉淀历史记录。</span>
+            </template>
+            <template v-else>
+              <span class="history-empty__dot" />
             </template>
           </div>
         </template>
       </div>
     </aside>
 
-    <section class="chat-workbench">
-      <header class="chat-workbench__toolbar">
-        <div class="chat-workbench__title-block">
-          <p class="chat-workbench__meta">{{ toolbarMeta }}</p>
-          <div class="chat-workbench__headline">
+    <section class="chat-pane">
+      <header class="chat-pane__toolbar">
+        <div class="chat-pane__title-block">
+          <p class="chat-pane__meta">{{ toolbarMeta }}</p>
+          <div class="chat-pane__headline">
             <h1>{{ pageTitle }}</h1>
-            <span class="chat-workbench__status">{{ toolbarStatus }}</span>
+            <span class="chat-pane__status">{{ toolbarStatus }}</span>
           </div>
         </div>
 
-        <div class="chat-workbench__actions">
+        <div class="chat-pane__actions">
           <el-button
-            v-if="isHistoryCollapsed"
+            v-if="showToolbarHistoryToggle"
             circle
-            title="展开历史"
+            :title="historyToggleTitle"
             @click="toggleHistoryRail"
           >
-            <el-icon><Expand /></el-icon>
+            <el-icon>
+              <Expand v-if="isCompactScreen ? !isCompactHistoryOpen : isHistoryCollapsed" />
+              <Fold v-else />
+            </el-icon>
           </el-button>
 
           <el-button :loading="loadingSessions" title="刷新会话列表" @click="handleRefreshSessions">
@@ -538,200 +610,231 @@ function scrollToBottom() {
         </div>
       </header>
 
-      <section class="chat-workbench__body">
-        <section ref="messageStreamRef" class="chat-workbench__messages">
-          <div class="chat-workbench__thread">
-            <div v-if="loadingMessages && messages.length === 0" class="message-skeleton-stack">
-              <div class="message-skeleton message-skeleton--assistant">
-                <span class="message-skeleton__line long" />
-                <span class="message-skeleton__line medium" />
-                <span class="message-skeleton__line short" />
-              </div>
-              <div class="message-skeleton message-skeleton--user">
-                <span class="message-skeleton__line medium" />
-                <span class="message-skeleton__line short" />
-              </div>
-              <div class="message-skeleton message-skeleton--assistant">
-                <span class="message-skeleton__line long" />
-                <span class="message-skeleton__line long" />
-                <span class="message-skeleton__line medium" />
-              </div>
+      <section ref="messageStreamRef" class="chat-pane__messages">
+        <div class="chat-pane__thread">
+          <div v-if="loadingMessages && messages.length === 0" class="message-skeleton-stack">
+            <div class="message-skeleton message-skeleton--assistant">
+              <span class="message-skeleton__line long" />
+              <span class="message-skeleton__line medium" />
+              <span class="message-skeleton__line short" />
             </div>
+            <div class="message-skeleton message-skeleton--user">
+              <span class="message-skeleton__line medium" />
+              <span class="message-skeleton__line short" />
+            </div>
+            <div class="message-skeleton message-skeleton--assistant">
+              <span class="message-skeleton__line long" />
+              <span class="message-skeleton__line long" />
+              <span class="message-skeleton__line medium" />
+            </div>
+          </div>
 
-            <div v-else-if="isEmptyConversation" class="empty-state">
-              <div class="empty-state__badge">Owner AI Workspace</div>
-              <h3>把经营问题直接交给 AI</h3>
-              <p>
-                你可以让它解释支出结构、待缴税金、薪资分布和业务风险，也可以基于现有数据整理出更清晰的企业画像。
-              </p>
+          <div v-else-if="isEmptyConversation" class="empty-state">
+            <div class="empty-state__eyebrow">Owner AI Workspace</div>
+            <h3>今天想看哪些经营结论？</h3>
+            <p>
+              直接提问支出结构、待缴税金、薪资变化或业务风险，AI 会结合当前公司数据给出结论与解释。
+            </p>
 
-              <div class="empty-state__chips">
-                <button
-                  v-for="chip in promptChips"
-                  :key="chip"
-                  class="prompt-chip"
-                  @click="handleChipClick(chip)"
+            <div class="empty-state__chips">
+              <button
+                v-for="chip in promptChips"
+                :key="chip"
+                class="prompt-chip"
+                @click="handleChipClick(chip)"
+              >
+                {{ chip }}
+              </button>
+            </div>
+          </div>
+
+          <article
+            v-for="message in messages"
+            :key="message.id"
+            class="message-row"
+            :class="`message-row--${message.role}`"
+          >
+            <div v-if="message.messageType === 'action_required'" class="hitl-card">
+              <div class="hitl-card__header">
+                <span class="hitl-card__title">AI 请求更新企业画像</span>
+                <span class="hitl-card__status">{{ formatActionStatus(message) }}</span>
+              </div>
+
+              <div class="hitl-card__body">
+                <div class="hitl-column hitl-column--old">
+                  <span class="hitl-label">当前内容</span>
+                  <p>{{ getActionMetadata(message)?.oldValue || '暂无企业画像' }}</p>
+                </div>
+
+                <div class="hitl-column hitl-column--new">
+                  <span class="hitl-label">建议更新为</span>
+                  <p>{{ getActionMetadata(message)?.proposedValue }}</p>
+                </div>
+              </div>
+
+              <div class="hitl-card__footer">
+                <el-button
+                  :disabled="!isActionPending(message) || isActionProcessing(message)"
+                  @click="handleConfirmAction(message, false)"
                 >
-                  {{ chip }}
-                </button>
+                  拒绝修改
+                </el-button>
+                <el-button
+                  type="primary"
+                  :loading="isActionProcessing(message)"
+                  :disabled="!isActionPending(message)"
+                  @click="handleConfirmAction(message, true)"
+                >
+                  同意更新
+                </el-button>
               </div>
             </div>
 
-            <article
-              v-for="message in messages"
-              :key="message.id"
-              class="message-row"
-              :class="`message-row--${message.role}`"
+            <div
+              v-else-if="message.role === 'assistant'"
+              class="assistant-stack"
             >
-              <div v-if="message.messageType === 'action_required'" class="hitl-card">
-                <div class="hitl-card__header">
-                  <span class="hitl-card__title">AI 请求更新企业画像</span>
-                  <span class="hitl-card__status">{{ formatActionStatus(message) }}</span>
-                </div>
-
-                <div class="hitl-card__body">
-                  <div class="hitl-column hitl-column--old">
-                    <span class="hitl-label">当前内容</span>
-                    <p>{{ getActionMetadata(message)?.oldValue || '暂无企业画像' }}</p>
-                  </div>
-
-                  <div class="hitl-column hitl-column--new">
-                    <span class="hitl-label">建议更新为</span>
-                    <p>{{ getActionMetadata(message)?.proposedValue }}</p>
-                  </div>
-                </div>
-
-                <div class="hitl-card__footer">
-                  <el-button
-                    :disabled="!isActionPending(message) || isActionProcessing(message)"
-                    @click="handleConfirmAction(message, false)"
-                  >
-                    拒绝修改
-                  </el-button>
-                  <el-button
-                    type="primary"
-                    :loading="isActionProcessing(message)"
-                    :disabled="!isActionPending(message)"
-                    @click="handleConfirmAction(message, true)"
-                  >
-                    同意更新
-                  </el-button>
-                </div>
+              <div class="message-bubble message-bubble--assistant">
+                <div class="assistant-content" v-html="renderMarkdown(message.content)" />
               </div>
-
-              <div
-                v-else-if="message.role === 'assistant'"
-                class="assistant-stack"
-              >
-                <div class="message-bubble message-bubble--assistant">
-                  <div class="assistant-content" v-html="renderMarkdown(message.content)" />
-                </div>
-              </div>
-
-              <div v-else class="message-bubble message-bubble--user">
-                {{ message.content }}
-              </div>
-            </article>
-
-            <div v-if="isThinking" class="assistant-thinking chat-workbench__thinking">
-              正在思考...
             </div>
+
+            <div v-else class="message-bubble message-bubble--user">
+              {{ message.content }}
+            </div>
+          </article>
+
+          <div v-if="isThinking" class="assistant-thinking">
+            正在思考...
           </div>
-        </section>
-
-        <footer class="chat-composer-shell">
-          <div class="chat-composer__surface">
-            <div class="chat-composer__input">
-              <el-input
-                v-model="inputMessage"
-                type="textarea"
-                :rows="2"
-                resize="none"
-                placeholder="直接问：本月支出结构、待缴税金、员工成本变化，或者让 AI 帮你理解经营波动。"
-                @keydown="handleKeydown"
-              />
-              <div class="chat-composer__hint">Enter 发送，Shift + Enter 换行</div>
-            </div>
-
-            <div class="chat-composer__actions">
-              <el-button
-                type="primary"
-                circle
-                title="发送消息"
-                :disabled="!inputMessage.trim() || isThinking"
-                @click="handleSendMessage"
-              >
-                <el-icon><Promotion /></el-icon>
-              </el-button>
-            </div>
-          </div>
-        </footer>
+        </div>
       </section>
+
+      <footer class="chat-pane__composer">
+        <div class="chat-composer__surface">
+          <div class="chat-composer__input">
+            <el-input
+              v-model="inputMessage"
+              type="textarea"
+              :rows="2"
+              resize="none"
+              placeholder="直接问：本月支出结构、待缴税金、员工成本变化，或者让 AI 帮你理解经营波动。"
+              @keydown="handleKeydown"
+            />
+            <div class="chat-composer__hint">Enter 发送，Shift + Enter 换行</div>
+          </div>
+
+          <div class="chat-composer__actions">
+            <el-button
+              type="primary"
+              circle
+              title="发送消息"
+              :disabled="!inputMessage.trim() || isThinking"
+              @click="handleSendMessage"
+            >
+              <el-icon><Promotion /></el-icon>
+            </el-button>
+          </div>
+        </div>
+      </footer>
     </section>
   </div>
 </template>
 
 <style scoped>
-.ai-chat-page {
+.ai-chat-shell {
+  position: relative;
   display: grid;
   grid-template-columns: 256px minmax(0, 1fr);
-  gap: 18px;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  border-radius: 32px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(251, 250, 248, 0.98) 100%);
+  box-shadow:
+    0 20px 46px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+  isolation: isolate;
   transition: grid-template-columns 0.24s ease;
 }
 
-.ai-chat-page--collapsed {
+.ai-chat-shell--history-collapsed {
   grid-template-columns: 72px minmax(0, 1fr);
 }
 
-.history-rail {
+.ai-chat-shell--compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ai-chat-shell__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(2px);
+}
+
+.history-pane {
   display: flex;
   flex-direction: column;
-  height: 100%;
   min-height: 0;
-  padding: 18px 14px;
+  padding: 18px 14px 14px;
   box-sizing: border-box;
-  border-radius: 28px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, #ffffff 0%, #fbfaf8 100%);
-  box-shadow:
-    0 14px 30px rgba(15, 23, 42, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  overflow: hidden;
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 245, 241, 0.92) 100%);
 }
 
-.history-rail--collapsed {
-  padding: 18px 10px;
+.history-pane--collapsed {
+  padding: 18px 10px 14px;
 }
 
-.history-rail__header {
+.history-pane--compact {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: min(86vw, 320px);
+  z-index: 3;
+  transform: translateX(calc(-100% - 16px));
+  transition:
+    transform 0.24s ease,
+    box-shadow 0.24s ease;
+  box-shadow: none;
+}
+
+.history-pane--compact-open {
+  transform: translateX(0);
+  box-shadow: 20px 0 42px rgba(15, 23, 42, 0.16);
+}
+
+.history-pane__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
-.history-rail__heading h2 {
+.history-pane__heading h2 {
   margin: 6px 0 0;
   font-size: 24px;
-  line-height: 1.15;
+  line-height: 1.12;
   color: rgba(15, 23, 42, 0.96);
 }
 
-.history-rail__brand {
+.history-pane__brand {
   display: grid;
   place-items: center;
   width: 40px;
   height: 40px;
   border-radius: 14px;
-  background: #eef5ff;
+  background: #eef4ff;
   color: #0f62d6;
   font-size: 14px;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
 }
 
 .eyebrow {
@@ -740,12 +843,12 @@ function scrollToBottom() {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #9a938c;
+  color: #9b948e;
 }
 
-.history-rail__new {
-  margin-top: 18px;
+.history-pane__new {
   width: 100%;
+  margin-top: 18px;
 }
 
 .history-list {
@@ -775,9 +878,11 @@ function scrollToBottom() {
   box-sizing: border-box;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.2s ease, transform 0.2s ease;
   font: inherit;
   color: inherit;
+  transition:
+    background-color 0.18s ease,
+    transform 0.18s ease;
 }
 
 .history-item__button:hover {
@@ -785,8 +890,8 @@ function scrollToBottom() {
 }
 
 .history-item.active .history-item__button {
-  background: #eaf3ff;
-  box-shadow: inset 0 0 0 1px rgba(15, 98, 214, 0.18);
+  background: rgba(15, 98, 214, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(15, 98, 214, 0.14);
 }
 
 .history-item__button:disabled {
@@ -806,7 +911,7 @@ function scrollToBottom() {
   height: 36px;
   flex-shrink: 0;
   border-radius: 12px;
-  background: #f2f6fb;
+  background: #f1f5fa;
   color: #0f62d6;
   font-size: 14px;
   font-weight: 700;
@@ -946,94 +1051,80 @@ function scrollToBottom() {
   background: #d0d7e2;
 }
 
-.chat-workbench {
+.chat-pane {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
-  border-radius: 30px;
   background:
-    radial-gradient(circle at top, rgba(15, 98, 214, 0.07), transparent 34%),
-    linear-gradient(180deg, #ffffff 0%, #fbfaf9 100%);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow:
-    0 18px 38px rgba(15, 23, 42, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    radial-gradient(circle at top, rgba(15, 98, 214, 0.06), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 251, 249, 0.98) 100%);
 }
 
-.chat-workbench__toolbar {
+.chat-pane__toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  min-height: 56px;
-  padding: 14px 24px 10px;
+  padding: 18px 24px 14px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.06);
 }
 
-.chat-workbench__title-block,
-.chat-workbench__actions {
+.chat-pane__title-block,
+.chat-pane__actions {
   min-width: 0;
 }
 
-.chat-workbench__meta {
+.chat-pane__meta {
   margin: 0;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #9a938c;
+  color: #9b948e;
 }
 
-.chat-workbench__headline {
+.chat-pane__headline {
   display: flex;
   align-items: baseline;
   gap: 12px;
   min-width: 0;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
-.chat-workbench__headline h1 {
+.chat-pane__headline h1 {
   margin: 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
   color: rgba(15, 23, 42, 0.96);
 }
 
-.chat-workbench__status {
+.chat-pane__status {
   flex-shrink: 0;
   font-size: 12px;
-  color: #8e8882;
+  color: #8f8882;
 }
 
-.chat-workbench__actions {
+.chat-pane__actions {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.chat-workbench__body {
-  position: relative;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.chat-workbench__messages {
-  height: 100%;
+.chat-pane__messages {
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 24px 232px;
+  padding: 26px 24px 18px;
   box-sizing: border-box;
+  overscroll-behavior: contain;
 }
 
-.chat-workbench__thread {
-  width: min(100%, 980px);
+.chat-pane__thread {
+  width: min(100%, 960px);
   margin: 0 auto;
 }
 
@@ -1083,34 +1174,34 @@ function scrollToBottom() {
 .empty-state {
   min-height: 100%;
   display: grid;
-  place-items: center;
-  gap: 0;
-  padding: 40px 24px 24px;
+  align-content: center;
+  justify-items: center;
+  padding: 44px 24px 56px;
   text-align: center;
   color: #6f6964;
 }
 
-.empty-state__badge {
-  display: inline-flex;
-  align-items: center;
+.empty-state__eyebrow {
   padding: 6px 12px;
   border-radius: 999px;
   background: rgba(15, 98, 214, 0.08);
   color: #0f62d6;
   font-size: 12px;
   font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .empty-state h3 {
-  margin: 18px 0 0;
-  font-size: 34px;
-  line-height: 1.16;
+  margin: 22px 0 0;
+  max-width: 12ch;
+  font-size: 38px;
+  line-height: 1.12;
   color: rgba(15, 23, 42, 0.96);
 }
 
 .empty-state p {
-  margin: 14px 0 0;
-  max-width: 720px;
+  margin: 16px 0 0;
+  max-width: 680px;
   font-size: 15px;
   line-height: 1.8;
 }
@@ -1121,7 +1212,7 @@ function scrollToBottom() {
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  max-width: 780px;
+  max-width: 760px;
 }
 
 .message-row {
@@ -1147,15 +1238,15 @@ function scrollToBottom() {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  width: min(72%, 760px);
+  width: min(78%, 820px);
 }
 
 .message-bubble {
-  max-width: min(76%, 780px);
+  max-width: min(74%, 760px);
   padding: 16px 18px;
   font-size: 15px;
   line-height: 1.78;
+  overflow-wrap: anywhere;
 }
 
 .message-bubble--assistant {
@@ -1163,34 +1254,31 @@ function scrollToBottom() {
   max-width: 100%;
   padding: 0;
   border-radius: 24px 24px 24px 10px;
-  background: #f6f7f9;
+  background: rgba(246, 247, 249, 0.92);
   border: 1px solid rgba(15, 23, 42, 0.08);
   color: rgba(15, 23, 42, 0.9);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.03),
-    0 10px 24px rgba(15, 23, 42, 0.04);
   overflow: hidden;
 }
 
 .assistant-content {
-  padding: 18px 20px 18px 24px;
+  padding: 18px 20px 18px 22px;
 }
 
 .assistant-thinking {
   display: inline-flex;
   align-items: center;
+  margin-left: 10px;
   color: #8e8882;
   font-size: 12px;
   line-height: 1.6;
   animation: thinkingPulse 1.3s ease-in-out infinite;
 }
 
-.chat-workbench__thinking {
-  margin-left: 10px;
-}
-
 .assistant-content :deep(table) {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 12px 0;
   border-collapse: collapse;
   font-size: 13px;
@@ -1201,6 +1289,7 @@ function scrollToBottom() {
   border: 1px solid rgba(15, 23, 42, 0.08);
   padding: 8px 10px;
   text-align: left;
+  white-space: nowrap;
 }
 
 .assistant-content :deep(p),
@@ -1233,10 +1322,10 @@ function scrollToBottom() {
 }
 
 .message-bubble--user {
-  border-radius: 24px 24px 8px 24px;
+  border-radius: 22px 22px 8px 22px;
   background: linear-gradient(135deg, #2b7fff 0%, #0f62d6 100%);
   color: #ffffff;
-  box-shadow: 0 14px 34px rgba(15, 98, 214, 0.22);
+  box-shadow: 0 12px 28px rgba(15, 98, 214, 0.2);
   white-space: pre-wrap;
 }
 
@@ -1247,7 +1336,7 @@ function scrollToBottom() {
   background: rgba(255, 255, 255, 0.92);
   padding: 20px;
   box-sizing: border-box;
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
 }
 
 .hitl-card__header,
@@ -1317,8 +1406,8 @@ function scrollToBottom() {
   border: none;
   border-radius: 999px;
   padding: 9px 14px;
-  background: rgba(255, 255, 255, 0.88);
-  color: rgba(15, 23, 42, 0.82);
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(15, 23, 42, 0.84);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1335,13 +1424,11 @@ function scrollToBottom() {
   color: #0f62d6;
 }
 
-.chat-composer-shell {
-  position: absolute;
-  left: 50%;
-  right: auto;
-  bottom: 20px;
-  width: min(calc(100% - 36px), 940px);
-  transform: translateX(-50%);
+.chat-pane__composer {
+  padding: 16px 22px 20px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.56) 0%, rgba(255, 255, 255, 0.94) 30%);
 }
 
 .chat-composer__surface {
@@ -1349,14 +1436,12 @@ function scrollToBottom() {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: end;
-  padding: 16px 16px 12px;
-  border-radius: 28px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(18px);
+  padding: 14px 16px 12px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.9);
   box-shadow:
-    0 16px 42px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    inset 0 0 0 1px rgba(15, 23, 42, 0.08),
+    0 10px 24px rgba(15, 23, 42, 0.05);
 }
 
 .chat-composer__input {
@@ -1411,6 +1496,107 @@ function scrollToBottom() {
 @keyframes shimmer {
   100% {
     transform: translateX(100%);
+  }
+}
+
+@media (max-width: 1100px) {
+  .ai-chat-shell {
+    border-radius: 26px;
+  }
+
+  .chat-pane__toolbar {
+    padding: 16px 20px 12px;
+  }
+
+  .chat-pane__messages {
+    padding: 22px 20px 16px;
+  }
+
+  .chat-pane__composer {
+    padding: 14px 18px 18px;
+  }
+
+  .chat-pane__thread,
+  .assistant-stack,
+  .message-bubble,
+  .hitl-card {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .message-skeleton {
+    max-width: 82%;
+  }
+
+  .message-bubble--user {
+    max-width: min(84%, 640px);
+  }
+}
+
+@media (max-width: 768px) {
+  .ai-chat-shell {
+    border-radius: 22px;
+  }
+
+  .history-pane--compact {
+    width: min(90vw, 320px);
+  }
+
+  .chat-pane__toolbar {
+    padding: 14px 16px 12px;
+    gap: 12px;
+  }
+
+  .chat-pane__headline {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .chat-pane__headline h1 {
+    font-size: 20px;
+    white-space: normal;
+  }
+
+  .chat-pane__messages {
+    padding: 20px 16px 14px;
+  }
+
+  .empty-state {
+    padding: 28px 8px 36px;
+  }
+
+  .empty-state h3 {
+    font-size: 30px;
+  }
+
+  .message-row {
+    margin-bottom: 18px;
+  }
+
+  .message-skeleton,
+  .message-bubble,
+  .message-bubble--user,
+  .assistant-stack,
+  .hitl-card {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .hitl-card__body {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-pane__composer {
+    padding: 12px 14px 14px;
+  }
+
+  .chat-composer__surface {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-composer__actions {
+    justify-content: flex-end;
   }
 }
 </style>

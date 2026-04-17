@@ -1,5 +1,7 @@
 package com.pjh.server.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pjh.server.ai.AiActionRequiredPayload;
 import com.pjh.server.ai.AiPromptBuilder;
 import com.pjh.server.ai.AiToolExecutionOutcome;
@@ -57,6 +59,7 @@ public class AiServiceImpl implements AiService {
     private final AiToolFacade aiToolFacade;
     private final AiProperties aiProperties;
     private final ObjectProvider<OpenAiChatModel> chatModelProvider;
+    private final ObjectMapper objectMapper;
 
     @Override
     public AiChatTurnVO chat(AiChatRequestDTO dto) {
@@ -182,15 +185,33 @@ public class AiServiceImpl implements AiService {
                 for (ToolExecutionRequest request : aiMessage.toolExecutionRequests()) {
                     AiToolExecutionOutcome outcome;
                     try {
-                        log.debug("Executing AI tool: sessionId={}, toolName={}", sessionId, request.name());
+                        log.debug(
+                                "Executing AI tool: sessionId={}, companyId={}, toolName={}, arguments={}",
+                                sessionId,
+                                companyId,
+                                request.name(),
+                                request.arguments()
+                        );
                         outcome = aiToolFacade.execute(companyId, request);
+                        ToolResultSummary resultSummary = summarizeToolResult(outcome.resultJson());
+                        log.debug(
+                                "AI tool completed: sessionId={}, companyId={}, toolName={}, arguments={}, resultCount={}, minDate={}, maxDate={}",
+                                sessionId,
+                                companyId,
+                                request.name(),
+                                request.arguments(),
+                                resultSummary.resultCount(),
+                                resultSummary.minDate(),
+                                resultSummary.maxDate()
+                        );
                     } catch (Exception e) {
                         log.error(
-                                "AI tool execution failed: sessionId={}, companyId={}, userId={}, toolName={}",
+                                "AI tool execution failed: sessionId={}, companyId={}, userId={}, toolName={}, arguments={}",
                                 sessionId,
                                 companyId,
                                 userId,
                                 request.name(),
+                                request.arguments(),
                                 e
                         );
                         throw e;
@@ -415,10 +436,55 @@ public class AiServiceImpl implements AiService {
         return null;
     }
 
+    private ToolResultSummary summarizeToolResult(String resultJson) {
+        if (resultJson == null || resultJson.isBlank()) {
+            return new ToolResultSummary("n/a", null, null);
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(resultJson);
+            String resultCount = extractResultCount(root);
+            String minDate = readOptionalText(root, "minDate");
+            String maxDate = readOptionalText(root, "maxDate");
+            return new ToolResultSummary(resultCount, minDate, maxDate);
+        } catch (Exception e) {
+            return new ToolResultSummary("unparseable", null, null);
+        }
+    }
+
+    private String extractResultCount(JsonNode root) {
+        if (root == null || root.isNull()) {
+            return "0";
+        }
+        if (root.hasNonNull("recordCount")) {
+            return root.get("recordCount").asText();
+        }
+        if (root.hasNonNull("count")) {
+            return root.get("count").asText();
+        }
+        if (root.has("records") && root.get("records").isArray()) {
+            return String.valueOf(root.get("records").size());
+        }
+        if (root.isArray()) {
+            return String.valueOf(root.size());
+        }
+        return "unknown";
+    }
+
+    private String readOptionalText(JsonNode root, String fieldName) {
+        if (root == null || !root.hasNonNull(fieldName)) {
+            return null;
+        }
+        return root.get(fieldName).asText();
+    }
+
     record AiChatContext(Long companyId, Long userId, String sessionId) {
     }
 
     record AiErrorPayload(int code, String message) {
+    }
+
+    private record ToolResultSummary(String resultCount, String minDate, String maxDate) {
     }
 
     private record ChatExecutionResult(String finalText, AiActionRequiredPayload actionRequired) {
