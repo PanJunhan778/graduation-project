@@ -1,5 +1,5 @@
 import request from './request'
-import type { ImportError, PageResult, Result, TaxForm, TaxRecordVO } from '@/types'
+import type { ImportError, PageResult, Result, TaxForm, TaxRecordVO, TaxRecycleBinVO } from '@/types'
 
 type TemplateDownloadError = {
   code?: number
@@ -36,6 +36,21 @@ export function deleteTax(id: number): Promise<Result<null>> {
 
 export function batchDeleteTax(ids: number[]): Promise<Result<null>> {
   return request.post('/tax/batch-delete', { ids })
+}
+
+export function getTaxRecycleBinList(params: {
+  page: number
+  size: number
+}): Promise<Result<PageResult<TaxRecycleBinVO>>> {
+  return request.get('/tax/recycle-bin/list', { params })
+}
+
+export function restoreTax(id: number): Promise<Result<null>> {
+  return request.post(`/tax/recycle-bin/${id}/restore`)
+}
+
+export function batchRestoreTax(ids: number[]): Promise<Result<number>> {
+  return request.post('/tax/recycle-bin/batch-restore', { ids })
 }
 
 export function importTaxExcel(file: File): Promise<Result<ImportError[] | null>> {

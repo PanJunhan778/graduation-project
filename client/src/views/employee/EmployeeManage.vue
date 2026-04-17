@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Delete, Edit, Loading, Plus, Search, Upload, Warning } from '@element-plus/icons-vue'
+import { Delete, Edit, Loading, Plus, RefreshLeft, Search, Upload, Warning } from '@element-plus/icons-vue'
 import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
+import RecycleBinDrawer from '@/components/common/RecycleBinDrawer.vue'
 import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
   batchDeleteEmployee,
+  batchRestoreEmployee,
   createEmployee,
   deleteEmployee,
   downloadEmployeeTemplate,
   getEmployeeList,
+  getEmployeeRecycleBinList,
   importEmployeeExcel,
+  restoreEmployee,
   updateEmployee,
 } from '@/api/employee'
-import type { EmployeeForm, EmployeeRecordVO, ImportError } from '@/types'
+import type { EmployeeForm, EmployeeRecordVO, EmployeeRecycleBinVO, ImportError } from '@/types'
 import { downloadImportErrorReport } from '@/utils/excel'
 import type { FormInstance, FormRules } from 'element-plus'
 
@@ -27,6 +31,58 @@ const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.
 
 const filterDepartment = ref('')
 const filterStatus = ref<number | undefined>(undefined)
+
+const drawerVisible = ref(false)
+const drawerTitle = ref('新增员工')
+const drawerFormRef = ref<FormInstance>()
+const drawerSubmitting = ref(false)
+const editingId = ref<number | null>(null)
+const drawerForm = reactive<EmployeeForm>({
+  name: '',
+  department: '',
+  position: '',
+  salary: '',
+  hireDate: '',
+  status: 1,
+  remark: '',
+})
+
+const recycleBinVisible = ref(false)
+const recycleBinLoading = ref(false)
+const recycleBinTableData = ref<EmployeeRecycleBinVO[]>([])
+const recycleBinTotal = ref(0)
+const recycleBinCurrentPage = ref(1)
+const recycleBinPageSize = ref(10)
+const recycleBinSelectedRows = ref<EmployeeRecycleBinVO[]>([])
+
+const importDialogVisible = ref(false)
+const importLoading = ref(false)
+const importErrors = ref<ImportError[]>([])
+const importHasError = ref(false)
+
+const drawerRules: FormRules = {
+  name: [{ required: true, message: '请输入员工姓名', trigger: 'blur' }],
+  department: [{ required: true, message: '请输入所属部门', trigger: 'blur' }],
+  salary: [
+    { required: true, message: '请输入基础薪资', trigger: 'blur' },
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) return callback(new Error('请输入基础薪资'))
+        const num = Number(value)
+        if (Number.isNaN(num) || num < 0) {
+          return callback(new Error('基础薪资不能小于 0'))
+        }
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
+  hireDate: [{ required: true, message: '请选择入职日期', trigger: 'change' }],
+  status: [{ required: true, message: '请选择在职状态', trigger: 'change' }],
+}
+
+const hasBatchSelection = computed(() => selectedRows.value.length > 0)
+const hasRecycleBatchSelection = computed(() => recycleBinSelectedRows.value.length > 0)
 
 async function fetchList() {
   loading.value = true
@@ -50,58 +106,58 @@ async function fetchList() {
   }
 }
 
+async function fetchRecycleBinList() {
+  recycleBinLoading.value = true
+  try {
+    const res = await getEmployeeRecycleBinList({
+      page: recycleBinCurrentPage.value,
+      size: recycleBinPageSize.value,
+    })
+    recycleBinTableData.value = res.data.records
+    recycleBinTotal.value = res.data.total
+
+    if (recycleBinCurrentPage.value > 1 && recycleBinTableData.value.length === 0 && recycleBinTotal.value > 0) {
+      recycleBinCurrentPage.value -= 1
+      await fetchRecycleBinList()
+    }
+  } finally {
+    recycleBinLoading.value = false
+  }
+}
+
 function handleFilter() {
   currentPage.value = 1
-  fetchList()
+  void fetchList()
 }
 
 function handlePageChange(page: number) {
   currentPage.value = page
-  fetchList()
+  void fetchList()
 }
 
 function handleSizeChange(size: number) {
   pageSize.value = size
   currentPage.value = 1
-  fetchList()
+  void fetchList()
 }
 
 function handleSelectionChange(rows: EmployeeRecordVO[]) {
   selectedRows.value = rows
 }
 
-const drawerVisible = ref(false)
-const drawerTitle = ref('新增员工')
-const drawerFormRef = ref<FormInstance>()
-const drawerSubmitting = ref(false)
-const editingId = ref<number | null>(null)
-const drawerForm = reactive<EmployeeForm>({
-  name: '',
-  department: '',
-  position: '',
-  salary: '',
-  hireDate: '',
-  status: 1,
-  remark: '',
-})
+function handleRecycleBinSelectionChange(rows: EmployeeRecycleBinVO[]) {
+  recycleBinSelectedRows.value = rows
+}
 
-const drawerRules: FormRules = {
-  name: [{ required: true, message: '请输入员工姓名', trigger: 'blur' }],
-  department: [{ required: true, message: '请输入所属部门', trigger: 'blur' }],
-  salary: [
-    { required: true, message: '请输入基础薪资', trigger: 'blur' },
-    {
-      validator: (_rule, value, callback) => {
-        if (!value) return callback(new Error('请输入基础薪资'))
-        const num = Number(value)
-        if (Number.isNaN(num) || num < 0) return callback(new Error('基础薪资不能小于0'))
-        callback()
-      },
-      trigger: 'blur',
-    },
-  ],
-  hireDate: [{ required: true, message: '请选择入职日期', trigger: 'change' }],
-  status: [{ required: true, message: '请选择在职状态', trigger: 'change' }],
+function handleRecycleBinPageChange(page: number) {
+  recycleBinCurrentPage.value = page
+  void fetchRecycleBinList()
+}
+
+function handleRecycleBinSizeChange(size: number) {
+  recycleBinPageSize.value = size
+  recycleBinCurrentPage.value = 1
+  void fetchRecycleBinList()
 }
 
 function resetDrawerForm() {
@@ -134,6 +190,13 @@ function openEditDrawer(row: EmployeeRecordVO) {
   drawerVisible.value = true
 }
 
+function openRecycleBinDrawer() {
+  recycleBinVisible.value = true
+  recycleBinCurrentPage.value = 1
+  recycleBinSelectedRows.value = []
+  void fetchRecycleBinList()
+}
+
 function handleSalaryBlur() {
   if (drawerForm.salary && !Number.isNaN(Number(drawerForm.salary))) {
     drawerForm.salary = Number(drawerForm.salary).toFixed(2)
@@ -161,7 +224,7 @@ async function submitDrawer() {
       ElMessage.success('员工记录创建成功')
     }
     drawerVisible.value = false
-    fetchList()
+    void fetchList()
   } finally {
     drawerSubmitting.value = false
   }
@@ -176,13 +239,11 @@ async function handleDelete(row: EmployeeRecordVO) {
     )
     await deleteEmployee(row.id)
     ElMessage.success('删除成功')
-    fetchList()
+    void fetchList()
   } catch {
     // cancelled
   }
 }
-
-const hasBatchSelection = computed(() => selectedRows.value.length > 0)
 
 async function handleBatchDelete() {
   if (!selectedRows.value.length) return
@@ -194,18 +255,47 @@ async function handleBatchDelete() {
     )
     const ids = selectedRows.value.map((item) => item.id)
     await batchDeleteEmployee(ids)
-    ElMessage.success('批量删除成功')
     selectedRows.value = []
-    fetchList()
+    ElMessage.success('批量删除成功')
+    void fetchList()
   } catch {
     // cancelled
   }
 }
 
-const importDialogVisible = ref(false)
-const importLoading = ref(false)
-const importErrors = ref<ImportError[]>([])
-const importHasError = ref(false)
+async function handleRestoreFromRecycleBin(row: EmployeeRecycleBinVO) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要恢复员工「${row.name}」的记录吗？`,
+      '提示',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    await restoreEmployee(row.id)
+    recycleBinSelectedRows.value = []
+    await Promise.all([fetchRecycleBinList(), fetchList()])
+    ElMessage.success('恢复成功')
+  } catch {
+    // cancelled
+  }
+}
+
+async function handleBatchRestoreFromRecycleBin() {
+  if (!recycleBinSelectedRows.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要恢复选中的 ${recycleBinSelectedRows.value.length} 条员工记录吗？`,
+      '提示',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    const ids = recycleBinSelectedRows.value.map((item) => item.id)
+    const res = await batchRestoreEmployee(ids)
+    recycleBinSelectedRows.value = []
+    await Promise.all([fetchRecycleBinList(), fetchList()])
+    ElMessage.success(`已恢复 ${res.data || ids.length} 条记录`)
+  } catch {
+    // cancelled
+  }
+}
 
 function openImportDialog() {
   importErrors.value = []
@@ -221,7 +311,7 @@ async function handleImportUpload(options: { file: File }) {
     await importEmployeeExcel(options.file)
     ElMessage.success('导入成功')
     importDialogVisible.value = false
-    fetchList()
+    void fetchList()
   } catch (err: unknown) {
     const error = err as { code?: number; message?: string; data?: ImportError[] }
     if (error?.data && Array.isArray(error.data)) {
@@ -248,7 +338,7 @@ function handleErrorReportDownload() {
   downloadImportErrorReport(importErrors.value)
 }
 
-function formatSalary(row: EmployeeRecordVO) {
+function formatSalary(row: { salary: number }) {
   return `¥${Number(row.salary).toLocaleString('zh-CN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -270,7 +360,7 @@ onMounted(fetchList)
   <PageTableSkeleton
     v-if="showInitialSkeleton"
     title="员工名册"
-    :action-count="3"
+    :action-count="4"
     :filter-count="2"
     :row-count="8"
   />
@@ -283,6 +373,7 @@ onMounted(fetchList)
       <div class="action-left">
         <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
         <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>
+        <el-button :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
         <a class="template-link" @click="handleTemplateDownload">下载导入模板</a>
       </div>
       <div class="action-right">
@@ -501,6 +592,38 @@ onMounted(fetchList)
         <span>正在导入...</span>
       </div>
     </el-dialog>
+
+    <RecycleBinDrawer
+      v-model="recycleBinVisible"
+      title="员工回收站"
+      :data="recycleBinTableData"
+      :loading="recycleBinLoading"
+      :total="recycleBinTotal"
+      :page="recycleBinCurrentPage"
+      :size="recycleBinPageSize"
+      :selected-count="hasRecycleBatchSelection ? recycleBinSelectedRows.length : 0"
+      @selection-change="handleRecycleBinSelectionChange"
+      @page-change="handleRecycleBinPageChange"
+      @size-change="handleRecycleBinSizeChange"
+      @restore="handleRestoreFromRecycleBin"
+      @batch-restore="handleBatchRestoreFromRecycleBin"
+    >
+      <template #columns>
+        <el-table-column prop="name" label="姓名" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="department" label="所属部门" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="position" label="职位" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.position || '--' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="基础薪资" width="160" align="right">
+          <template #default="{ row }">
+            <span class="salary-cell">{{ formatSalary(row) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="hireDate" label="入职日期" width="130" />
+      </template>
+    </RecycleBinDrawer>
   </div>
 </template>
 

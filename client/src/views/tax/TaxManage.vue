@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Delete, Edit, Loading, Plus, Search, Upload, Warning } from '@element-plus/icons-vue'
+import { Delete, Edit, Loading, Plus, RefreshLeft, Search, Upload, Warning } from '@element-plus/icons-vue'
 import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
+import RecycleBinDrawer from '@/components/common/RecycleBinDrawer.vue'
 import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
   batchDeleteTax,
+  batchRestoreTax,
   createTax,
   deleteTax,
   downloadTaxTemplate,
   getTaxList,
+  getTaxRecycleBinList,
   importTaxExcel,
+  restoreTax,
   updateTax,
 } from '@/api/tax'
 import { downloadImportErrorReport } from '@/utils/excel'
 import type { FormInstance, FormRules } from 'element-plus'
-import type { ImportError, TaxForm, TaxPaymentStatus, TaxRecordVO } from '@/types'
+import type { ImportError, TaxForm, TaxPaymentStatus, TaxRecordVO, TaxRecycleBinVO } from '@/types'
 
 const loading = ref(false)
 const hasLoaded = ref(false)
@@ -29,61 +33,13 @@ const filterPaymentStatus = ref<TaxPaymentStatus | undefined>(undefined)
 const filterTaxPeriod = ref('')
 const filterTaxType = ref('')
 
-const taxTypeOptions = [
-  '增值税',
-  '企业所得税',
-  '个人所得税',
-  '印花税',
-  '城市维护建设税',
-  '教育费附加',
-]
-
-const declarationTypeOptions = ['日常/预缴', '年度汇算清缴']
-
-async function fetchList() {
-  loading.value = true
-  try {
-    const params: Record<string, unknown> = {
-      page: currentPage.value,
-      size: pageSize.value,
-    }
-    if (filterPaymentStatus.value !== undefined) {
-      params.paymentStatus = filterPaymentStatus.value
-    }
-    if (filterTaxPeriod.value.trim()) {
-      params.taxPeriod = filterTaxPeriod.value.trim()
-    }
-    if (filterTaxType.value.trim()) {
-      params.taxType = filterTaxType.value.trim()
-    }
-    const res = await getTaxList(params as Parameters<typeof getTaxList>[0])
-    tableData.value = res.data.records
-    total.value = res.data.total
-  } finally {
-    hasLoaded.value = true
-    loading.value = false
-  }
-}
-
-function handleFilter() {
-  currentPage.value = 1
-  fetchList()
-}
-
-function handlePageChange(page: number) {
-  currentPage.value = page
-  fetchList()
-}
-
-function handleSizeChange(size: number) {
-  pageSize.value = size
-  currentPage.value = 1
-  fetchList()
-}
-
-function handleSelectionChange(rows: TaxRecordVO[]) {
-  selectedRows.value = rows
-}
+const recycleBinVisible = ref(false)
+const recycleBinLoading = ref(false)
+const recycleBinTableData = ref<TaxRecycleBinVO[]>([])
+const recycleBinTotal = ref(0)
+const recycleBinCurrentPage = ref(1)
+const recycleBinPageSize = ref(10)
+const recycleBinSelectedRows = ref<TaxRecycleBinVO[]>([])
 
 const drawerVisible = ref(false)
 const drawerTitle = ref('新增税务记录')
@@ -100,6 +56,21 @@ const drawerForm = reactive<TaxForm>({
   remark: '',
 })
 
+const importDialogVisible = ref(false)
+const importLoading = ref(false)
+const importErrors = ref<ImportError[]>([])
+const importHasError = ref(false)
+
+const taxTypeOptions = [
+  '增值税',
+  '企业所得税',
+  '个人所得税',
+  '印花税',
+  '城市维护建设税',
+  '教育费附加',
+]
+
+const declarationTypeOptions = ['日常/预缴', '年度汇算清缴']
 const taxPeriodPattern = /^\d{4}-(0[1-9]|1[0-2]|Q[1-4]|Annual)$/
 
 const drawerRules: FormRules = {
@@ -146,6 +117,88 @@ const drawerRules: FormRules = {
   ],
 }
 
+const hasBatchSelection = computed(() => selectedRows.value.length > 0)
+const hasRecycleBatchSelection = computed(() => recycleBinSelectedRows.value.length > 0)
+
+async function fetchList() {
+  loading.value = true
+  try {
+    const params: Record<string, unknown> = {
+      page: currentPage.value,
+      size: pageSize.value,
+    }
+    if (filterPaymentStatus.value !== undefined) {
+      params.paymentStatus = filterPaymentStatus.value
+    }
+    if (filterTaxPeriod.value.trim()) {
+      params.taxPeriod = filterTaxPeriod.value.trim()
+    }
+    if (filterTaxType.value.trim()) {
+      params.taxType = filterTaxType.value.trim()
+    }
+    const res = await getTaxList(params as Parameters<typeof getTaxList>[0])
+    tableData.value = res.data.records
+    total.value = res.data.total
+  } finally {
+    hasLoaded.value = true
+    loading.value = false
+  }
+}
+
+async function fetchRecycleBinList() {
+  recycleBinLoading.value = true
+  try {
+    const res = await getTaxRecycleBinList({
+      page: recycleBinCurrentPage.value,
+      size: recycleBinPageSize.value,
+    })
+    recycleBinTableData.value = res.data.records
+    recycleBinTotal.value = res.data.total
+
+    if (recycleBinCurrentPage.value > 1 && recycleBinTableData.value.length === 0 && recycleBinTotal.value > 0) {
+      recycleBinCurrentPage.value -= 1
+      await fetchRecycleBinList()
+    }
+  } finally {
+    recycleBinLoading.value = false
+  }
+}
+
+function handleFilter() {
+  currentPage.value = 1
+  void fetchList()
+}
+
+function handlePageChange(page: number) {
+  currentPage.value = page
+  void fetchList()
+}
+
+function handleSizeChange(size: number) {
+  pageSize.value = size
+  currentPage.value = 1
+  void fetchList()
+}
+
+function handleSelectionChange(rows: TaxRecordVO[]) {
+  selectedRows.value = rows
+}
+
+function handleRecycleBinSelectionChange(rows: TaxRecycleBinVO[]) {
+  recycleBinSelectedRows.value = rows
+}
+
+function handleRecycleBinPageChange(page: number) {
+  recycleBinCurrentPage.value = page
+  void fetchRecycleBinList()
+}
+
+function handleRecycleBinSizeChange(size: number) {
+  recycleBinPageSize.value = size
+  recycleBinCurrentPage.value = 1
+  void fetchRecycleBinList()
+}
+
 function resetDrawerForm() {
   drawerForm.taxPeriod = ''
   drawerForm.taxType = ''
@@ -174,6 +227,13 @@ function openEditDrawer(row: TaxRecordVO) {
   drawerForm.paymentDate = row.paymentDate
   drawerForm.remark = row.remark || ''
   drawerVisible.value = true
+}
+
+function openRecycleBinDrawer() {
+  recycleBinVisible.value = true
+  recycleBinCurrentPage.value = 1
+  recycleBinSelectedRows.value = []
+  void fetchRecycleBinList()
 }
 
 function handleTaxAmountBlur() {
@@ -213,7 +273,7 @@ async function submitDrawer() {
     }
 
     drawerVisible.value = false
-    fetchList()
+    void fetchList()
   } finally {
     drawerSubmitting.value = false
   }
@@ -228,13 +288,11 @@ async function handleDelete(row: TaxRecordVO) {
     )
     await deleteTax(row.id)
     ElMessage.success('删除成功')
-    fetchList()
+    void fetchList()
   } catch {
     // cancelled
   }
 }
-
-const hasBatchSelection = computed(() => selectedRows.value.length > 0)
 
 async function handleBatchDelete() {
   if (!selectedRows.value.length) return
@@ -246,18 +304,47 @@ async function handleBatchDelete() {
     )
     const ids = selectedRows.value.map((item) => item.id)
     await batchDeleteTax(ids)
-    ElMessage.success('批量删除成功')
     selectedRows.value = []
-    fetchList()
+    ElMessage.success('批量删除成功')
+    void fetchList()
   } catch {
     // cancelled
   }
 }
 
-const importDialogVisible = ref(false)
-const importLoading = ref(false)
-const importErrors = ref<ImportError[]>([])
-const importHasError = ref(false)
+async function handleRestoreFromRecycleBin(row: TaxRecycleBinVO) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要恢复「${row.taxPeriod} / ${row.taxType}」这条税务记录吗？`,
+      '提示',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    await restoreTax(row.id)
+    recycleBinSelectedRows.value = []
+    await Promise.all([fetchRecycleBinList(), fetchList()])
+    ElMessage.success('恢复成功')
+  } catch {
+    // cancelled
+  }
+}
+
+async function handleBatchRestoreFromRecycleBin() {
+  if (!recycleBinSelectedRows.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要恢复选中的 ${recycleBinSelectedRows.value.length} 条税务记录吗？`,
+      '提示',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    const ids = recycleBinSelectedRows.value.map((item) => item.id)
+    const res = await batchRestoreTax(ids)
+    recycleBinSelectedRows.value = []
+    await Promise.all([fetchRecycleBinList(), fetchList()])
+    ElMessage.success(`已恢复 ${res.data || ids.length} 条记录`)
+  } catch {
+    // cancelled
+  }
+}
 
 function openImportDialog() {
   importErrors.value = []
@@ -273,7 +360,7 @@ async function handleImportUpload(options: { file: File }) {
     await importTaxExcel(options.file)
     ElMessage.success('导入成功')
     importDialogVisible.value = false
-    fetchList()
+    void fetchList()
   } catch (err: unknown) {
     const error = err as { code?: number; message?: string; data?: ImportError[] }
     if (error?.data && Array.isArray(error.data)) {
@@ -301,7 +388,7 @@ function handleErrorReportDownload() {
   downloadImportErrorReport(importErrors.value)
 }
 
-function formatTaxAmount(row: TaxRecordVO) {
+function formatTaxAmount(row: { taxAmount: number }) {
   return `¥${Number(row.taxAmount).toLocaleString('zh-CN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -343,7 +430,7 @@ onMounted(fetchList)
   <PageTableSkeleton
     v-if="showInitialSkeleton"
     title="税务档案"
-    :action-count="3"
+    :action-count="4"
     :filter-count="3"
     :row-count="8"
   />
@@ -356,6 +443,7 @@ onMounted(fetchList)
       <div class="action-left">
         <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
         <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>
+        <el-button :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
         <a class="template-link" @click="handleTemplateDownload">下载导入模板</a>
       </div>
       <div class="action-right">
@@ -373,7 +461,7 @@ onMounted(fetchList)
     <div class="filter-bar">
       <el-select
         v-model="filterPaymentStatus"
-        placeholder="纳税状态"
+        placeholder="缴纳状态"
         clearable
         style="width: 160px"
         @change="handleFilter"
@@ -393,7 +481,7 @@ onMounted(fetchList)
       />
       <el-input
         v-model="filterTaxType"
-        placeholder="税种关键词"
+        placeholder="税种关键字"
         clearable
         :prefix-icon="Search"
         style="width: 220px"
@@ -584,8 +672,8 @@ onMounted(fetchList)
         >
           <div class="upload-content">
             <el-icon :size="48" color="#a39e98"><Upload /></el-icon>
-            <p class="upload-text">把 Excel 文件拖拽到此处，或<em>点击上传</em></p>
-            <p class="upload-hint">仅支持 .xlsx 格式，请先下载税务导入模板后再填写</p>
+            <p class="upload-text">将 Excel 文件拖拽到此处，或 <em>点击上传</em></p>
+            <p class="upload-hint">仅支持 .xlsx 格式，请先下载税务导入模板</p>
           </div>
         </el-upload>
       </div>
@@ -611,6 +699,39 @@ onMounted(fetchList)
         <span>正在导入...</span>
       </div>
     </el-dialog>
+
+    <RecycleBinDrawer
+      v-model="recycleBinVisible"
+      title="税务回收站"
+      :data="recycleBinTableData"
+      :loading="recycleBinLoading"
+      :total="recycleBinTotal"
+      :page="recycleBinCurrentPage"
+      :size="recycleBinPageSize"
+      :selected-count="hasRecycleBatchSelection ? recycleBinSelectedRows.length : 0"
+      @selection-change="handleRecycleBinSelectionChange"
+      @page-change="handleRecycleBinPageChange"
+      @size-change="handleRecycleBinSizeChange"
+      @restore="handleRestoreFromRecycleBin"
+      @batch-restore="handleBatchRestoreFromRecycleBin"
+    >
+      <template #columns>
+        <el-table-column prop="taxPeriod" label="税款所属期" width="150" />
+        <el-table-column prop="taxType" label="税种" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="declarationType" label="申报类型" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.declarationType || '--' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="税额" width="160" align="right">
+          <template #default="{ row }">
+            <span class="tax-amount-cell" :class="getTaxAmountClass(row.taxAmount)">
+              {{ formatTaxAmount(row) }}
+            </span>
+          </template>
+        </el-table-column>
+      </template>
+    </RecycleBinDrawer>
   </div>
 </template>
 

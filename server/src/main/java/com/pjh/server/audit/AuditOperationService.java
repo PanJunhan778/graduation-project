@@ -36,4 +36,13 @@ public class AuditOperationService {
                 auditDiffBuilder.buildDeleteChanges(current, fields)
         );
     }
+
+    public void publishRestore(String module, Long targetId, Object current, String[] fields) {
+        auditLogEventPublisher.publish(
+                module,
+                "RESTORE",
+                targetId,
+                auditDiffBuilder.buildCreateChanges(current, fields)
+        );
+    }
 }

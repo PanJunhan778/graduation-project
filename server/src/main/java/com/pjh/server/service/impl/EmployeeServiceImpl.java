@@ -10,12 +10,17 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.AuditUpdate;
+import com.pjh.server.audit.DeleteAuditMetadata;
+import com.pjh.server.audit.DeleteAuditMetadataResolver;
 import com.pjh.server.common.Result;
 import com.pjh.server.dto.EmployeeUpsertDTO;
 import com.pjh.server.entity.Employee;
+import com.pjh.server.entity.User;
 import com.pjh.server.exception.BusinessException;
 import com.pjh.server.mapper.EmployeeMapper;
 import com.pjh.server.service.EmployeeService;
+import com.pjh.server.util.CurrentSessionService;
+import com.pjh.server.vo.EmployeeRecycleBinVO;
 import com.pjh.server.vo.EmployeeVO;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletResponse;
@@ -32,9 +37,12 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -46,6 +54,8 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     private final EmployeeMapper employeeMapper;
     private final AuditOperationService auditOperationService;
+    private final DeleteAuditMetadataResolver deleteAuditMetadataResolver;
+    private final CurrentSessionService currentSessionService;
 
     @Override
     public IPage<EmployeeVO> listEmployees(int page, int size, String department, Integer status) {
@@ -57,6 +67,13 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         IPage<Employee> employeePage = employeeMapper.selectPage(new Page<>(page, size), wrapper);
         return employeePage.convert(this::toVO);
+    }
+
+    @Override
+    public IPage<EmployeeRecycleBinVO> listRecycleBinEmployees(int page, int size) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        List<Employee> deletedEmployees = employeeMapper.selectDeletedByCompanyId(companyId);
+        return buildRecycleBinPage(page, size, deletedEmployees, companyId);
     }
 
     @Override
@@ -103,6 +120,48 @@ public class EmployeeServiceImpl implements EmployeeService {
         List<Employee> employees = employeeMapper.selectBatchIds(ids);
         employeeMapper.deleteBatchIds(ids);
         employees.forEach(employee -> auditOperationService.publishDelete("employee", employee.getId(), employee, AUDIT_FIELDS));
+    }
+
+    @Override
+    @Transactional
+    public void restoreEmployee(Long id) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        Long userId = currentSessionService.requireCurrentUserId();
+        Employee deletedEmployee = employeeMapper.selectDeletedById(companyId, id);
+        if (deletedEmployee == null) {
+            throw new BusinessException("回收站中未找到该员工记录");
+        }
+
+        int affected = employeeMapper.restoreDeletedById(companyId, id, userId);
+        if (affected <= 0) {
+            throw new BusinessException("员工记录恢复失败");
+        }
+
+        auditOperationService.publishRestore("employee", id, deletedEmployee, AUDIT_FIELDS);
+    }
+
+    @Override
+    @Transactional
+    public int batchRestore(List<Long> ids) {
+        List<Long> normalizedIds = normalizeIds(ids);
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        Long userId = currentSessionService.requireCurrentUserId();
+        List<Employee> deletedEmployees = employeeMapper.selectDeletedByIds(companyId, normalizedIds);
+        if (deletedEmployees.isEmpty()) {
+            throw new BusinessException("未找到可恢复的员工记录");
+        }
+
+        List<Long> restorableIds = deletedEmployees.stream()
+                .map(Employee::getId)
+                .distinct()
+                .toList();
+        int affected = employeeMapper.restoreDeletedBatch(companyId, restorableIds, userId);
+        if (affected <= 0) {
+            throw new BusinessException("员工记录恢复失败");
+        }
+
+        deletedEmployees.forEach(employee -> auditOperationService.publishRestore("employee", employee.getId(), employee, AUDIT_FIELDS));
+        return affected;
     }
 
     @Override
@@ -165,7 +224,7 @@ public class EmployeeServiceImpl implements EmployeeService {
                     continue;
                 }
                 if (salary == null || salary.compareTo(BigDecimal.ZERO) < 0) {
-                    errors.add(errorEntry(rowNum, "基础薪资不能小于0"));
+                    errors.add(errorEntry(rowNum, "基础薪资不能小于 0"));
                     continue;
                 }
 
@@ -281,6 +340,62 @@ public class EmployeeServiceImpl implements EmployeeService {
         return vo;
     }
 
+    private IPage<EmployeeRecycleBinVO> buildRecycleBinPage(
+            int page,
+            int size,
+            List<Employee> deletedEmployees,
+            Long companyId
+    ) {
+        List<Long> targetIds = deletedEmployees.stream()
+                .map(Employee::getId)
+                .toList();
+        Map<Long, DeleteAuditMetadata> metadataMap = deleteAuditMetadataResolver.resolve("employee", companyId, targetIds);
+        Map<Long, User> fallbackUserMap = deleteAuditMetadataResolver.loadUsers(
+                deletedEmployees.stream()
+                        .map(Employee::getUpdatedBy)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet())
+        );
+
+        List<EmployeeRecycleBinVO> recycleBinRecords = deletedEmployees.stream()
+                .map(employee -> toRecycleBinVO(employee, metadataMap.get(employee.getId()), fallbackUserMap))
+                .sorted(Comparator
+                        .comparing(EmployeeRecycleBinVO::getDeletedTime, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(EmployeeRecycleBinVO::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        return paginate(page, size, recycleBinRecords);
+    }
+
+    private EmployeeRecycleBinVO toRecycleBinVO(
+            Employee employee,
+            DeleteAuditMetadata metadata,
+            Map<Long, User> fallbackUserMap
+    ) {
+        EmployeeRecycleBinVO vo = new EmployeeRecycleBinVO();
+        vo.setId(employee.getId());
+        vo.setName(employee.getName());
+        vo.setDepartment(employee.getDepartment());
+        vo.setPosition(employee.getPosition());
+        vo.setSalary(employee.getSalary());
+        vo.setHireDate(employee.getHireDate());
+        vo.setStatus(employee.getStatus());
+        vo.setRemark(employee.getRemark());
+        vo.setCreatedTime(employee.getCreatedTime());
+
+        Long deletedByUserId = metadata != null && metadata.getDeletedByUserId() != null
+                ? metadata.getDeletedByUserId()
+                : employee.getUpdatedBy();
+        vo.setDeletedTime(metadata != null && metadata.getDeletedTime() != null
+                ? metadata.getDeletedTime()
+                : employee.getUpdatedTime());
+        vo.setDeletedByUserId(deletedByUserId);
+        vo.setDeletedByName(metadata != null && StrUtil.isNotBlank(metadata.getDeletedByName())
+                ? metadata.getDeletedByName()
+                : deleteAuditMetadataResolver.resolveOperatorName(deletedByUserId, fallbackUserMap.get(deletedByUserId)));
+        return vo;
+    }
+
     private LocalDate parseDate(Object value) {
         if (value instanceof java.util.Date date) {
             return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
@@ -309,6 +424,36 @@ public class EmployeeServiceImpl implements EmployeeService {
             }
         }
         return true;
+    }
+
+    private List<Long> normalizeIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要恢复的数据");
+        }
+        List<Long> normalizedIds = ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (normalizedIds.isEmpty()) {
+            throw new BusinessException("请选择要恢复的数据");
+        }
+        return normalizedIds;
+    }
+
+    private <T> IPage<T> paginate(int page, int size, List<T> records) {
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.max(size, 1);
+        Page<T> result = new Page<>(safePage, safeSize);
+        result.setTotal(records.size());
+        if (records.isEmpty()) {
+            result.setRecords(List.of());
+            return result;
+        }
+
+        int fromIndex = Math.min((safePage - 1) * safeSize, records.size());
+        int toIndex = Math.min(fromIndex + safeSize, records.size());
+        result.setRecords(records.subList(fromIndex, toIndex));
+        return result;
     }
 
     private Map<String, Object> errorEntry(int row, String error) {

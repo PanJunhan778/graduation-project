@@ -151,6 +151,14 @@ export interface FinanceRecordVO {
   createdTime: string
 }
 
+export interface RecycleBinMetadata {
+  deletedTime: string
+  deletedByUserId: number | null
+  deletedByName: string | null
+}
+
+export interface FinanceRecycleBinVO extends FinanceRecordVO, RecycleBinMetadata {}
+
 /** 财务记录表单（新增/编辑） */
 export interface FinanceForm {
   type: string
@@ -173,6 +181,8 @@ export interface EmployeeRecordVO {
   remark: string | null
   createdTime: string
 }
+
+export interface EmployeeRecycleBinVO extends EmployeeRecordVO, RecycleBinMetadata {}
 
 /** 员工记录表单（新增/编辑） */
 export interface EmployeeForm {
@@ -201,6 +211,8 @@ export interface TaxRecordVO {
   createdTime: string
 }
 
+export interface TaxRecycleBinVO extends TaxRecordVO, RecycleBinMetadata {}
+
 /** 税务记录表单（新增/编辑） */
 export interface TaxForm {
   taxPeriod: string
@@ -222,7 +234,7 @@ export interface ImportError {
 export type AuditModule = 'finance' | 'employee' | 'tax'
 
 /** 审计操作类型 */
-export type AuditOperationType = 'CREATE' | 'UPDATE' | 'DELETE'
+export type AuditOperationType = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE'
 
 /** 审计日志列表项 */
 export interface AuditFieldChangeVO {

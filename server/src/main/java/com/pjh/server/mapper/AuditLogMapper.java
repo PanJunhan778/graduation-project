@@ -109,4 +109,37 @@ public interface AuditLogMapper extends BaseMapper<AuditLog> {
             @Param("companyId") Long companyId,
             @Param("keys") List<AuditOperationGroupKey> keys
     );
+
+    @Select("""
+            <script>
+            SELECT
+                id,
+                company_id,
+                user_id,
+                module,
+                operation_type,
+                target_id,
+                field_name,
+                old_value,
+                new_value,
+                operation_time,
+                remark,
+                is_deleted
+            FROM audit_log
+            WHERE company_id = #{companyId}
+              AND is_deleted = 0
+              AND module = #{module}
+              AND operation_type = 'DELETE'
+              AND target_id IN
+              <foreach collection="targetIds" item="targetId" open="(" separator="," close=")">
+                #{targetId}
+              </foreach>
+            ORDER BY target_id ASC, operation_time DESC, id DESC
+            </script>
+            """)
+    List<AuditLog> selectDeleteLogsForTargets(
+            @Param("companyId") Long companyId,
+            @Param("module") String module,
+            @Param("targetIds") List<Long> targetIds
+    );
 }

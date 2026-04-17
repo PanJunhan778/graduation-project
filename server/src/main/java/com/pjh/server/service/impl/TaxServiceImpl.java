@@ -6,23 +6,32 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.AuditUpdate;
+import com.pjh.server.audit.DeleteAuditMetadata;
+import com.pjh.server.audit.DeleteAuditMetadataResolver;
 import com.pjh.server.common.Result;
 import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.TaxUpsertDTO;
 import com.pjh.server.entity.TaxRecord;
+import com.pjh.server.entity.User;
 import com.pjh.server.exception.BusinessException;
 import com.pjh.server.mapper.TaxRecordMapper;
 import com.pjh.server.service.TaxService;
+import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.TaxRecordVO;
+import com.pjh.server.vo.TaxRecycleBinVO;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +48,8 @@ public class TaxServiceImpl implements TaxService {
     private final TaxRecordMapper taxRecordMapper;
     private final AuditOperationService auditOperationService;
     private final HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
+    private final DeleteAuditMetadataResolver deleteAuditMetadataResolver;
+    private final CurrentSessionService currentSessionService;
 
     @Override
     public IPage<TaxRecordVO> listRecords(int page, int size, String taxType, Integer paymentStatus, String taxPeriod) {
@@ -54,6 +65,13 @@ public class TaxServiceImpl implements TaxService {
 
         IPage<TaxRecord> recordPage = taxRecordMapper.selectPage(new Page<>(page, size), wrapper);
         return recordPage.convert(this::toVO);
+    }
+
+    @Override
+    public IPage<TaxRecycleBinVO> listRecycleBinRecords(int page, int size) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        List<TaxRecord> deletedRecords = taxRecordMapper.selectDeletedByCompanyId(companyId);
+        return buildRecycleBinPage(page, size, deletedRecords, companyId);
     }
 
     @Override
@@ -105,6 +123,50 @@ public class TaxServiceImpl implements TaxService {
         taxRecordMapper.deleteBatchIds(ids);
         records.forEach(record -> auditOperationService.publishDelete("tax", record.getId(), record, AUDIT_FIELDS));
         homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
+    }
+
+    @Override
+    @Transactional
+    public void restoreRecord(Long id) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        Long userId = currentSessionService.requireCurrentUserId();
+        TaxRecord deletedRecord = taxRecordMapper.selectDeletedById(companyId, id);
+        if (deletedRecord == null) {
+            throw new BusinessException("回收站中未找到该税务记录");
+        }
+
+        int affected = taxRecordMapper.restoreDeletedById(companyId, id, userId);
+        if (affected <= 0) {
+            throw new BusinessException("税务记录恢复失败");
+        }
+
+        auditOperationService.publishRestore("tax", id, deletedRecord, AUDIT_FIELDS);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
+    }
+
+    @Override
+    @Transactional
+    public int batchRestore(List<Long> ids) {
+        List<Long> normalizedIds = normalizeIds(ids);
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        Long userId = currentSessionService.requireCurrentUserId();
+        List<TaxRecord> deletedRecords = taxRecordMapper.selectDeletedByIds(companyId, normalizedIds);
+        if (deletedRecords.isEmpty()) {
+            throw new BusinessException("未找到可恢复的税务记录");
+        }
+
+        List<Long> restorableIds = deletedRecords.stream()
+                .map(TaxRecord::getId)
+                .distinct()
+                .toList();
+        int affected = taxRecordMapper.restoreDeletedBatch(companyId, restorableIds, userId);
+        if (affected <= 0) {
+            throw new BusinessException("税务记录恢复失败");
+        }
+
+        deletedRecords.forEach(record -> auditOperationService.publishRestore("tax", record.getId(), record, AUDIT_FIELDS));
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
+        return affected;
     }
 
     @Override
@@ -175,6 +237,92 @@ public class TaxServiceImpl implements TaxService {
         vo.setRemark(record.getRemark());
         vo.setCreatedTime(record.getCreatedTime());
         return vo;
+    }
+
+    private IPage<TaxRecycleBinVO> buildRecycleBinPage(
+            int page,
+            int size,
+            List<TaxRecord> deletedRecords,
+            Long companyId
+    ) {
+        List<Long> targetIds = deletedRecords.stream()
+                .map(TaxRecord::getId)
+                .toList();
+        Map<Long, DeleteAuditMetadata> metadataMap = deleteAuditMetadataResolver.resolve("tax", companyId, targetIds);
+        Map<Long, User> fallbackUserMap = deleteAuditMetadataResolver.loadUsers(
+                deletedRecords.stream()
+                        .map(TaxRecord::getUpdatedBy)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet())
+        );
+
+        List<TaxRecycleBinVO> recycleBinRecords = deletedRecords.stream()
+                .map(record -> toRecycleBinVO(record, metadataMap.get(record.getId()), fallbackUserMap))
+                .sorted(Comparator
+                        .comparing(TaxRecycleBinVO::getDeletedTime, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(TaxRecycleBinVO::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        return paginate(page, size, recycleBinRecords);
+    }
+
+    private TaxRecycleBinVO toRecycleBinVO(
+            TaxRecord record,
+            DeleteAuditMetadata metadata,
+            Map<Long, User> fallbackUserMap
+    ) {
+        TaxRecycleBinVO vo = new TaxRecycleBinVO();
+        vo.setId(record.getId());
+        vo.setTaxPeriod(record.getTaxPeriod());
+        vo.setTaxType(record.getTaxType());
+        vo.setDeclarationType(record.getDeclarationType());
+        vo.setTaxAmount(record.getTaxAmount());
+        vo.setPaymentStatus(record.getPaymentStatus());
+        vo.setPaymentDate(record.getPaymentDate());
+        vo.setRemark(record.getRemark());
+        vo.setCreatedTime(record.getCreatedTime());
+
+        Long deletedByUserId = metadata != null && metadata.getDeletedByUserId() != null
+                ? metadata.getDeletedByUserId()
+                : record.getUpdatedBy();
+        vo.setDeletedTime(metadata != null && metadata.getDeletedTime() != null
+                ? metadata.getDeletedTime()
+                : record.getUpdatedTime());
+        vo.setDeletedByUserId(deletedByUserId);
+        vo.setDeletedByName(metadata != null && StrUtil.isNotBlank(metadata.getDeletedByName())
+                ? metadata.getDeletedByName()
+                : deleteAuditMetadataResolver.resolveOperatorName(deletedByUserId, fallbackUserMap.get(deletedByUserId)));
+        return vo;
+    }
+
+    private List<Long> normalizeIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要恢复的数据");
+        }
+        List<Long> normalizedIds = ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (normalizedIds.isEmpty()) {
+            throw new BusinessException("请选择要恢复的数据");
+        }
+        return normalizedIds;
+    }
+
+    private <T> IPage<T> paginate(int page, int size, List<T> records) {
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.max(size, 1);
+        Page<T> result = new Page<>(safePage, safeSize);
+        result.setTotal(records.size());
+        if (records.isEmpty()) {
+            result.setRecords(List.of());
+            return result;
+        }
+
+        int fromIndex = Math.min((safePage - 1) * safeSize, records.size());
+        int toIndex = Math.min(fromIndex + safeSize, records.size());
+        result.setRecords(records.subList(fromIndex, toIndex));
+        return result;
     }
 
     private String trimToNull(String value) {

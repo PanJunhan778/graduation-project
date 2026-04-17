@@ -1,5 +1,12 @@
 import request from './request'
-import type { EmployeeForm, EmployeeRecordVO, ImportError, PageResult, Result } from '@/types'
+import type {
+  EmployeeForm,
+  EmployeeRecordVO,
+  EmployeeRecycleBinVO,
+  ImportError,
+  PageResult,
+  Result,
+} from '@/types'
 
 type TemplateDownloadError = {
   code?: number
@@ -35,6 +42,21 @@ export function deleteEmployee(id: number): Promise<Result<null>> {
 
 export function batchDeleteEmployee(ids: number[]): Promise<Result<null>> {
   return request.post('/employee/batch-delete', { ids })
+}
+
+export function getEmployeeRecycleBinList(params: {
+  page: number
+  size: number
+}): Promise<Result<PageResult<EmployeeRecycleBinVO>>> {
+  return request.get('/employee/recycle-bin/list', { params })
+}
+
+export function restoreEmployee(id: number): Promise<Result<null>> {
+  return request.post(`/employee/recycle-bin/${id}/restore`)
+}
+
+export function batchRestoreEmployee(ids: number[]): Promise<Result<number>> {
+  return request.post('/employee/recycle-bin/batch-restore', { ids })
 }
 
 export function importEmployeeExcel(file: File): Promise<Result<ImportError[] | null>> {

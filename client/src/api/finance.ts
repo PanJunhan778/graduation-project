@@ -1,5 +1,12 @@
 import request from './request'
-import type { Result, PageResult, FinanceRecordVO, FinanceForm, ImportError } from '@/types'
+import type {
+  Result,
+  PageResult,
+  FinanceRecordVO,
+  FinanceRecycleBinVO,
+  FinanceForm,
+  ImportError,
+} from '@/types'
 
 type TemplateDownloadError = {
   code?: number
@@ -37,6 +44,21 @@ export function deleteFinance(id: number): Promise<Result<null>> {
 
 export function batchDeleteFinance(ids: number[]): Promise<Result<null>> {
   return request.post('/finance/batch-delete', { ids })
+}
+
+export function getFinanceRecycleBinList(params: {
+  page: number
+  size: number
+}): Promise<Result<PageResult<FinanceRecycleBinVO>>> {
+  return request.get('/finance/recycle-bin/list', { params })
+}
+
+export function restoreFinance(id: number): Promise<Result<null>> {
+  return request.post(`/finance/recycle-bin/${id}/restore`)
+}
+
+export function batchRestoreFinance(ids: number[]): Promise<Result<number>> {
+  return request.post('/finance/recycle-bin/batch-restore', { ids })
 }
 
 export function importFinanceExcel(

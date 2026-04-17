@@ -10,14 +10,19 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.AuditUpdate;
+import com.pjh.server.audit.DeleteAuditMetadata;
+import com.pjh.server.audit.DeleteAuditMetadataResolver;
 import com.pjh.server.common.Result;
 import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.FinanceCreateDTO;
 import com.pjh.server.entity.FinanceRecord;
+import com.pjh.server.entity.User;
 import com.pjh.server.exception.BusinessException;
 import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.service.FinanceService;
+import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceRecordVO;
+import com.pjh.server.vo.FinanceRecycleBinVO;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +36,14 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -39,16 +51,24 @@ import java.util.*;
 public class FinanceServiceImpl implements FinanceService {
 
     private static final String[] AUDIT_FIELDS = {"type", "amount", "category", "project", "date", "remark"};
-    private final FinanceRecordMapper financeRecordMapper;
-    private final AuditOperationService auditOperationService;
-    private final HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
-
     private static final Set<String> VALID_TYPES = Set.of("income", "expense");
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
+    private final FinanceRecordMapper financeRecordMapper;
+    private final AuditOperationService auditOperationService;
+    private final HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
+    private final DeleteAuditMetadataResolver deleteAuditMetadataResolver;
+    private final CurrentSessionService currentSessionService;
+
     @Override
-    public IPage<FinanceRecordVO> listRecords(int page, int size, String type, String category,
-                                               LocalDate startDate, LocalDate endDate) {
+    public IPage<FinanceRecordVO> listRecords(
+            int page,
+            int size,
+            String type,
+            String category,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
         LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<FinanceRecord>()
                 .eq(StrUtil.isNotBlank(type), FinanceRecord::getType, type)
                 .eq(StrUtil.isNotBlank(category), FinanceRecord::getCategory, category)
@@ -58,8 +78,14 @@ public class FinanceServiceImpl implements FinanceService {
                 .orderByDesc(FinanceRecord::getId);
 
         IPage<FinanceRecord> recordPage = financeRecordMapper.selectPage(new Page<>(page, size), wrapper);
-
         return recordPage.convert(this::toVO);
+    }
+
+    @Override
+    public IPage<FinanceRecycleBinVO> listRecycleBinRecords(int page, int size) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        List<FinanceRecord> deletedRecords = financeRecordMapper.selectDeletedByCompanyId(companyId);
+        return buildRecycleBinPage(page, size, deletedRecords, companyId);
     }
 
     @Override
@@ -115,6 +141,50 @@ public class FinanceServiceImpl implements FinanceService {
 
     @Override
     @Transactional
+    public void restoreRecord(Long id) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        Long userId = currentSessionService.requireCurrentUserId();
+        FinanceRecord deletedRecord = financeRecordMapper.selectDeletedById(companyId, id);
+        if (deletedRecord == null) {
+            throw new BusinessException("回收站中未找到该财务记录");
+        }
+
+        int affected = financeRecordMapper.restoreDeletedById(companyId, id, userId);
+        if (affected <= 0) {
+            throw new BusinessException("财务记录恢复失败");
+        }
+
+        auditOperationService.publishRestore("finance", id, deletedRecord, AUDIT_FIELDS);
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
+    }
+
+    @Override
+    @Transactional
+    public int batchRestore(List<Long> ids) {
+        List<Long> normalizedIds = normalizeIds(ids);
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        Long userId = currentSessionService.requireCurrentUserId();
+        List<FinanceRecord> deletedRecords = financeRecordMapper.selectDeletedByIds(companyId, normalizedIds);
+        if (deletedRecords.isEmpty()) {
+            throw new BusinessException("未找到可恢复的财务记录");
+        }
+
+        List<Long> restorableIds = deletedRecords.stream()
+                .map(FinanceRecord::getId)
+                .distinct()
+                .toList();
+        int affected = financeRecordMapper.restoreDeletedBatch(companyId, restorableIds, userId);
+        if (affected <= 0) {
+            throw new BusinessException("财务记录恢复失败");
+        }
+
+        deletedRecords.forEach(record -> auditOperationService.publishRestore("finance", record.getId(), record, AUDIT_FIELDS));
+        homeAiSummarySnapshotInvalidationPublisher.publishCurrentCompany();
+        return affected;
+    }
+
+    @Override
+    @Transactional
     public Result<?> importExcel(MultipartFile file) {
         Result<?> result = FinanceImportExcelHelper.importExcel(file, financeRecordMapper);
         if (result.getCode() == 200) {
@@ -155,9 +225,13 @@ public class FinanceServiceImpl implements FinanceService {
                     continue;
                 }
                 type = type.trim();
-                if ("收入".equals(type)) type = "income";
-                else if ("支出".equals(type)) type = "expense";
-                else type = type.toLowerCase();
+                if ("收入".equals(type)) {
+                    type = "income";
+                } else if ("支出".equals(type)) {
+                    type = "expense";
+                } else {
+                    type = type.toLowerCase();
+                }
                 if (!VALID_TYPES.contains(type)) {
                     errors.add(errorEntry(rowNum, "收支类型必须为 收入/支出 或 income/expense"));
                     continue;
@@ -175,7 +249,7 @@ public class FinanceServiceImpl implements FinanceService {
                     continue;
                 }
                 if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-                    errors.add(errorEntry(rowNum, "金额必须大于0"));
+                    errors.add(errorEntry(rowNum, "金额必须大于 0"));
                     continue;
                 }
 
@@ -190,8 +264,8 @@ public class FinanceServiceImpl implements FinanceService {
                 }
                 LocalDate date;
                 try {
-                    if (dateObj instanceof java.util.Date d) {
-                        date = d.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+                    if (dateObj instanceof java.util.Date dateValue) {
+                        date = dateValue.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate();
                     } else {
                         date = LocalDate.parse(Convert.toStr(dateObj).trim(), DATE_FMT);
                     }
@@ -240,7 +314,6 @@ public class FinanceServiceImpl implements FinanceService {
             writer.addHeaderAlias("date", "发生日期");
             writer.addHeaderAlias("remark", "备注");
 
-            // 写入示例数据帮助用户理解格式
             List<Map<String, Object>> sampleData = new ArrayList<>();
             Map<String, Object> sample = new LinkedHashMap<>();
             sample.put("收支类型", "income");
@@ -252,8 +325,6 @@ public class FinanceServiceImpl implements FinanceService {
             sampleData.add(sample);
 
             writer.write(sampleData, true);
-
-            // 设置列宽
             writer.setColumnWidth(0, 15);
             writer.setColumnWidth(1, 15);
             writer.setColumnWidth(2, 18);
@@ -314,6 +385,91 @@ public class FinanceServiceImpl implements FinanceService {
         vo.setRemark(record.getRemark());
         vo.setCreatedTime(record.getCreatedTime());
         return vo;
+    }
+
+    private IPage<FinanceRecycleBinVO> buildRecycleBinPage(
+            int page,
+            int size,
+            List<FinanceRecord> deletedRecords,
+            Long companyId
+    ) {
+        List<Long> targetIds = deletedRecords.stream()
+                .map(FinanceRecord::getId)
+                .toList();
+        Map<Long, DeleteAuditMetadata> metadataMap = deleteAuditMetadataResolver.resolve("finance", companyId, targetIds);
+        Map<Long, User> fallbackUserMap = deleteAuditMetadataResolver.loadUsers(
+                deletedRecords.stream()
+                        .map(FinanceRecord::getUpdatedBy)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet())
+        );
+
+        List<FinanceRecycleBinVO> recycleBinRecords = deletedRecords.stream()
+                .map(record -> toRecycleBinVO(record, metadataMap.get(record.getId()), fallbackUserMap))
+                .sorted(Comparator
+                        .comparing(FinanceRecycleBinVO::getDeletedTime, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(FinanceRecycleBinVO::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        return paginate(page, size, recycleBinRecords);
+    }
+
+    private FinanceRecycleBinVO toRecycleBinVO(
+            FinanceRecord record,
+            DeleteAuditMetadata metadata,
+            Map<Long, User> fallbackUserMap
+    ) {
+        FinanceRecycleBinVO vo = new FinanceRecycleBinVO();
+        vo.setId(record.getId());
+        vo.setType(record.getType());
+        vo.setAmount(record.getAmount());
+        vo.setCategory(record.getCategory());
+        vo.setProject(record.getProject());
+        vo.setDate(record.getDate());
+        vo.setRemark(record.getRemark());
+        vo.setCreatedTime(record.getCreatedTime());
+
+        Long deletedByUserId = metadata != null && metadata.getDeletedByUserId() != null
+                ? metadata.getDeletedByUserId()
+                : record.getUpdatedBy();
+        vo.setDeletedTime(metadata != null && metadata.getDeletedTime() != null
+                ? metadata.getDeletedTime()
+                : record.getUpdatedTime());
+        vo.setDeletedByUserId(deletedByUserId);
+        vo.setDeletedByName(metadata != null && StrUtil.isNotBlank(metadata.getDeletedByName())
+                ? metadata.getDeletedByName()
+                : deleteAuditMetadataResolver.resolveOperatorName(deletedByUserId, fallbackUserMap.get(deletedByUserId)));
+        return vo;
+    }
+
+    private List<Long> normalizeIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要恢复的数据");
+        }
+        List<Long> normalizedIds = ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (normalizedIds.isEmpty()) {
+            throw new BusinessException("请选择要恢复的数据");
+        }
+        return normalizedIds;
+    }
+
+    private <T> IPage<T> paginate(int page, int size, List<T> records) {
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.max(size, 1);
+        Page<T> result = new Page<>(safePage, safeSize);
+        result.setTotal(records.size());
+        if (records.isEmpty()) {
+            result.setRecords(List.of());
+            return result;
+        }
+
+        int fromIndex = Math.min((safePage - 1) * safeSize, records.size());
+        int toIndex = Math.min(fromIndex + safeSize, records.size());
+        result.setRecords(records.subList(fromIndex, toIndex));
+        return result;
     }
 
     private Map<String, Object> errorEntry(int row, String error) {

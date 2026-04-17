@@ -1,22 +1,26 @@
 ﻿<script setup lang="ts">
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
-import { Plus, Upload, Delete, Edit, Warning, Loading } from '@element-plus/icons-vue'
+import { Plus, Upload, Delete, Edit, Warning, Loading, RefreshLeft } from '@element-plus/icons-vue'
 import FinanceOnboardingGuide from '@/components/common/FinanceOnboardingGuide.vue'
 import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
+import RecycleBinDrawer from '@/components/common/RecycleBinDrawer.vue'
 import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
   getFinanceList,
+  getFinanceRecycleBinList,
   createFinance,
   updateFinance,
   deleteFinance,
   batchDeleteFinance,
+  restoreFinance,
+  batchRestoreFinance,
   importFinanceExcel,
   downloadFinanceTemplate,
 } from '@/api/finance'
 import { getEmployeeList } from '@/api/employee'
 import { getTaxList } from '@/api/tax'
 import { useUserStore } from '@/store/user'
-import type { FinanceRecordVO, FinanceForm, ImportError } from '@/types'
+import type { FinanceRecordVO, FinanceRecycleBinVO, FinanceForm, ImportError } from '@/types'
 import type { FormInstance, FormRules } from 'element-plus'
 
 const userStore = useUserStore()
@@ -27,6 +31,13 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const selectedRows = ref<FinanceRecordVO[]>([])
+const recycleBinVisible = ref(false)
+const recycleBinLoading = ref(false)
+const recycleBinTableData = ref<FinanceRecycleBinVO[]>([])
+const recycleBinTotal = ref(0)
+const recycleBinCurrentPage = ref(1)
+const recycleBinPageSize = ref(10)
+const recycleBinSelectedRows = ref<FinanceRecycleBinVO[]>([])
 const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
 const actionBarRef = ref<HTMLElement | null>(null)
 const filterBarRef = ref<HTMLElement | null>(null)
@@ -135,6 +146,47 @@ function handleSelectionChange(rows: FinanceRecordVO[]) {
   selectedRows.value = rows
 }
 
+async function fetchRecycleBinList() {
+  recycleBinLoading.value = true
+  try {
+    const res = await getFinanceRecycleBinList({
+      page: recycleBinCurrentPage.value,
+      size: recycleBinPageSize.value,
+    })
+    recycleBinTableData.value = res.data.records
+    recycleBinTotal.value = res.data.total
+
+    if (recycleBinCurrentPage.value > 1 && recycleBinTableData.value.length === 0 && recycleBinTotal.value > 0) {
+      recycleBinCurrentPage.value -= 1
+      await fetchRecycleBinList()
+    }
+  } finally {
+    recycleBinLoading.value = false
+  }
+}
+
+function openRecycleBinDrawer() {
+  recycleBinVisible.value = true
+  recycleBinCurrentPage.value = 1
+  recycleBinSelectedRows.value = []
+  void fetchRecycleBinList()
+}
+
+function handleRecycleBinSelectionChange(rows: FinanceRecycleBinVO[]) {
+  recycleBinSelectedRows.value = rows
+}
+
+function handleRecycleBinPageChange(page: number) {
+  recycleBinCurrentPage.value = page
+  void fetchRecycleBinList()
+}
+
+function handleRecycleBinSizeChange(size: number) {
+  recycleBinPageSize.value = size
+  recycleBinCurrentPage.value = 1
+  void fetchRecycleBinList()
+}
+
 // ---- 抽屉：新增/编辑 ----
 const drawerVisible = ref(false)
 const drawerTitle = ref('新增记录')
@@ -239,6 +291,7 @@ async function handleDelete(row: FinanceRecordVO) {
 
 // ---- 批量删除 ----
 const hasBatchSelection = computed(() => selectedRows.value.length > 0)
+const hasRecycleBatchSelection = computed(() => recycleBinSelectedRows.value.length > 0)
 
 async function handleBatchDelete() {
   if (!selectedRows.value.length) return
@@ -253,6 +306,40 @@ async function handleBatchDelete() {
     ElMessage.success('批量删除成功')
     selectedRows.value = []
     fetchList()
+  } catch {
+    // cancelled
+  }
+}
+
+async function handleRestoreFromRecycleBin(row: FinanceRecycleBinVO) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要恢复这条${row.type === 'income' ? '收入' : '支出'}记录吗？`,
+      '提示',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    await restoreFinance(row.id)
+    recycleBinSelectedRows.value = []
+    await Promise.all([fetchRecycleBinList(), fetchList()])
+    ElMessage.success('恢复成功')
+  } catch {
+    // cancelled
+  }
+}
+
+async function handleBatchRestoreFromRecycleBin() {
+  if (!recycleBinSelectedRows.value.length) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要恢复选中的 ${recycleBinSelectedRows.value.length} 条财务记录吗？`,
+      '提示',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    const ids = recycleBinSelectedRows.value.map((item) => item.id)
+    const res = await batchRestoreFinance(ids)
+    recycleBinSelectedRows.value = []
+    await Promise.all([fetchRecycleBinList(), fetchList()])
+    ElMessage.success(`已恢复 ${res.data || ids.length} 条记录`)
   } catch {
     // cancelled
   }
@@ -364,6 +451,7 @@ onMounted(fetchList)
       <div class="action-left">
         <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
         <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>
+        <el-button :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
         <a class="template-link" @click="handleTemplateDownload">下载导入模板</a>
       </div>
       <div class="action-right">
@@ -611,6 +699,48 @@ onMounted(fetchList)
       @skip="dismissStaffGuide"
       @finish="dismissStaffGuide"
     />
+    <RecycleBinDrawer
+      v-model="recycleBinVisible"
+      title="财务回收站"
+      :data="recycleBinTableData"
+      :loading="recycleBinLoading"
+      :total="recycleBinTotal"
+      :page="recycleBinCurrentPage"
+      :size="recycleBinPageSize"
+      :selected-count="hasRecycleBatchSelection ? recycleBinSelectedRows.length : 0"
+      @selection-change="handleRecycleBinSelectionChange"
+      @page-change="handleRecycleBinPageChange"
+      @size-change="handleRecycleBinSizeChange"
+      @restore="handleRestoreFromRecycleBin"
+      @batch-restore="handleBatchRestoreFromRecycleBin"
+    >
+      <template #columns>
+        <el-table-column label="收支类型" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getTypeTagType(row.type)" size="small" round>
+              {{ getTypeLabel(row.type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="金额" width="160" align="right">
+          <template #default="{ row }">
+            <span
+              class="amount-cell"
+              :class="row.type === 'income' ? 'text-income' : 'text-expense'"
+            >
+              {{ formatAmount(row) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="category" label="财务分类" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="project" label="关联项目" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.project || '--' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="date" label="发生日期" width="130" />
+      </template>
+    </RecycleBinDrawer>
   </div>
 </template>
 

@@ -7,11 +7,20 @@ import com.pjh.server.common.Result;
 import com.pjh.server.dto.BatchDeleteDTO;
 import com.pjh.server.dto.EmployeeUpsertDTO;
 import com.pjh.server.service.EmployeeService;
+import com.pjh.server.vo.EmployeeRecycleBinVO;
 import com.pjh.server.vo.EmployeeVO;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
@@ -29,6 +38,13 @@ public class EmployeeController {
             @RequestParam(required = false) String department,
             @RequestParam(required = false) Integer status) {
         return Result.success(employeeService.listEmployees(page, size, department, status));
+    }
+
+    @GetMapping("/recycle-bin/list")
+    public Result<IPage<EmployeeRecycleBinVO>> listRecycleBin(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.success(employeeService.listRecycleBinEmployees(page, size));
     }
 
     @PostMapping
@@ -53,6 +69,18 @@ public class EmployeeController {
     public Result<Void> batchDelete(@RequestBody @Valid BatchDeleteDTO dto) {
         employeeService.batchDelete(dto.getIds());
         return Result.success("批量删除成功", null);
+    }
+
+    @PostMapping("/recycle-bin/{id}/restore")
+    public Result<Void> restore(@PathVariable Long id) {
+        employeeService.restoreEmployee(id);
+        return Result.success("员工记录恢复成功", null);
+    }
+
+    @PostMapping("/recycle-bin/batch-restore")
+    public Result<Integer> batchRestore(@RequestBody @Valid BatchDeleteDTO dto) {
+        int restoredCount = employeeService.batchRestore(dto.getIds());
+        return Result.success("批量恢复成功", restoredCount);
     }
 
     @PostMapping("/import")

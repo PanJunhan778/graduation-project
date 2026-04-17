@@ -1,11 +1,13 @@
 package com.pjh.server.service.impl;
 
 import com.pjh.server.audit.AuditOperationService;
+import com.pjh.server.audit.DeleteAuditMetadataResolver;
 import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
 import com.pjh.server.dto.TaxUpsertDTO;
 import com.pjh.server.entity.TaxRecord;
 import com.pjh.server.exception.BusinessException;
 import com.pjh.server.mapper.TaxRecordMapper;
+import com.pjh.server.util.CurrentSessionService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -15,6 +17,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -38,6 +42,12 @@ class TaxServiceImplTest {
 
     @Mock
     private HomeAiSummarySnapshotInvalidationPublisher homeAiSummarySnapshotInvalidationPublisher;
+
+    @Mock
+    private DeleteAuditMetadataResolver deleteAuditMetadataResolver;
+
+    @Mock
+    private CurrentSessionService currentSessionService;
 
     @InjectMocks
     private TaxServiceImpl taxService;
@@ -121,6 +131,37 @@ class TaxServiceImplTest {
         verify(homeAiSummarySnapshotInvalidationPublisher).publishCurrentCompany();
     }
 
+    @Test
+    void restoreRecordShouldPublishRestoreAudit() {
+        TaxRecord deletedRecord = taxRecord(7L, LocalDateTime.of(2026, 4, 9, 9, 0));
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(88L);
+        when(currentSessionService.requireCurrentUserId()).thenReturn(66L);
+        when(taxRecordMapper.selectDeletedById(88L, 7L)).thenReturn(deletedRecord);
+        when(taxRecordMapper.restoreDeletedById(88L, 7L, 66L)).thenReturn(1);
+
+        taxService.restoreRecord(7L);
+
+        verify(auditOperationService).publishRestore(eq("tax"), eq(7L), same(deletedRecord), any());
+        verify(homeAiSummarySnapshotInvalidationPublisher).publishCurrentCompany();
+    }
+
+    @Test
+    void batchRestoreShouldRestoreOnlyMatchedDeletedRecords() {
+        TaxRecord first = taxRecord(8L, LocalDateTime.of(2026, 4, 10, 9, 0));
+        TaxRecord second = taxRecord(9L, LocalDateTime.of(2026, 4, 11, 9, 0));
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(88L);
+        when(currentSessionService.requireCurrentUserId()).thenReturn(66L);
+        when(taxRecordMapper.selectDeletedByIds(88L, List.of(8L, 9L, 999L))).thenReturn(List.of(first, second));
+        when(taxRecordMapper.restoreDeletedBatch(88L, List.of(8L, 9L), 66L)).thenReturn(2);
+
+        int restoredCount = taxService.batchRestore(List.of(8L, 9L, 999L));
+
+        assertEquals(2, restoredCount);
+        verify(auditOperationService).publishRestore(eq("tax"), eq(8L), same(first), any());
+        verify(auditOperationService).publishRestore(eq("tax"), eq(9L), same(second), any());
+        verify(homeAiSummarySnapshotInvalidationPublisher).publishCurrentCompany();
+    }
+
     private TaxUpsertDTO createValidDto(BigDecimal taxAmount) {
         TaxUpsertDTO dto = new TaxUpsertDTO();
         dto.setTaxPeriod("2026-Q2");
@@ -131,5 +172,20 @@ class TaxServiceImplTest {
         dto.setPaymentDate(LocalDate.of(2026, 4, 10));
         dto.setRemark("测试数据");
         return dto;
+    }
+
+    private TaxRecord taxRecord(Long id, LocalDateTime updatedTime) {
+        TaxRecord record = new TaxRecord();
+        record.setId(id);
+        record.setTaxPeriod("2026-Q2");
+        record.setTaxType("企业所得税");
+        record.setDeclarationType("日常/预缴");
+        record.setTaxAmount(new BigDecimal("500.00"));
+        record.setPaymentStatus(1);
+        record.setPaymentDate(LocalDate.of(2026, 4, 10));
+        record.setUpdatedBy(12L);
+        record.setUpdatedTime(updatedTime);
+        record.setCreatedTime(updatedTime.minusDays(3));
+        return record;
     }
 }

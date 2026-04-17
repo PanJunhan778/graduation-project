@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 public class AuditServiceImpl implements AuditService {
 
     private static final Set<String> SUPPORTED_MODULES = Set.of("finance", "employee", "tax");
-    private static final Set<String> SUPPORTED_OPERATION_TYPES = Set.of("CREATE", "UPDATE", "DELETE");
+    private static final Set<String> SUPPORTED_OPERATION_TYPES = Set.of("CREATE", "UPDATE", "DELETE", "RESTORE");
 
     private final AuditLogMapper auditLogMapper;
     private final UserMapper userMapper;
@@ -115,7 +115,7 @@ public class AuditServiceImpl implements AuditService {
 
         String normalizedOperationType = operationType.trim().toUpperCase();
         if (!SUPPORTED_OPERATION_TYPES.contains(normalizedOperationType)) {
-            throw new BusinessException(400, "operationType 参数无效，仅支持 CREATE、UPDATE、DELETE");
+            throw new BusinessException(400, "operationType 参数无效，仅支持 CREATE、UPDATE、DELETE、RESTORE");
         }
         return normalizedOperationType;
     }

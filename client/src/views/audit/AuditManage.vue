@@ -43,16 +43,17 @@ const operationTypeOptions: Array<{ label: string; value: AuditOperationType }> 
   { label: '新增', value: 'CREATE' },
   { label: '编辑', value: 'UPDATE' },
   { label: '删除', value: 'DELETE' },
+  { label: '恢复', value: 'RESTORE' },
 ]
 
 const pageSubtitle = computed(() => {
   if (!hasLoaded.value) {
-    return '默认展示最近 7 天的新增、编辑、删除日志；查询行为不会被记录。'
+    return '默认展示最近 7 天的新增、编辑、删除和恢复日志；查询行为不会被记录。'
   }
   if (!filters.module && !filters.operationType && !filters.dateRange) {
     return '当前展示全部审计日志，并按一次操作聚合展示字段变化。'
   }
-  return '支持按模块、操作类型和日期区间筛选当前公司的增删改日志。'
+  return '支持按模块、操作类型和日期范围筛选当前公司的增删改恢复日志。'
 })
 
 async function fetchList() {
@@ -86,7 +87,7 @@ async function fetchList() {
 
 function handleSearch() {
   currentPage.value = 1
-  fetchList()
+  void fetchList()
 }
 
 function handleReset() {
@@ -103,13 +104,13 @@ function handleReset() {
 
 function handlePageChange(page: number) {
   currentPage.value = page
-  fetchList()
+  void fetchList()
 }
 
 function handleSizeChange(size: number) {
   pageSize.value = size
   currentPage.value = 1
-  fetchList()
+  void fetchList()
 }
 
 function syncQuery() {
@@ -136,7 +137,12 @@ function initFromRouteQuery() {
   if (module === 'finance' || module === 'employee' || module === 'tax') {
     filters.module = module
   }
-  if (operationType === 'CREATE' || operationType === 'UPDATE' || operationType === 'DELETE') {
+  if (
+    operationType === 'CREATE'
+    || operationType === 'UPDATE'
+    || operationType === 'DELETE'
+    || operationType === 'RESTORE'
+  ) {
     filters.operationType = operationType
   }
 
@@ -146,7 +152,7 @@ function initFromRouteQuery() {
     filters.dateRange = getDefaultDateRange()
   }
 
-  fetchList()
+  void fetchList()
 }
 
 function getDefaultDateRange(): [string, string] {
@@ -177,15 +183,17 @@ function getOperationTypeLabel(operationType: AuditOperationType) {
     CREATE: '新增',
     UPDATE: '编辑',
     DELETE: '删除',
+    RESTORE: '恢复',
   }
   return map[operationType]
 }
 
 function getOperationTypeTag(operationType: AuditOperationType) {
-  const map: Record<AuditOperationType, '' | 'success' | 'warning' | 'danger'> = {
+  const map: Record<AuditOperationType, '' | 'success' | 'warning' | 'danger' | 'primary'> = {
     CREATE: 'success',
     UPDATE: 'warning',
     DELETE: 'danger',
+    RESTORE: 'primary',
   }
   return map[operationType]
 }
@@ -237,7 +245,7 @@ onMounted(initFromRouteQuery)
   <PageTableSkeleton
     v-if="showInitialSkeleton"
     title="审计日志"
-    subtitle="默认展示最近 7 天的新增、编辑、删除日志；查询行为不会被记录。"
+    subtitle="默认展示最近 7 天的新增、编辑、删除和恢复日志；查询行为不会被记录。"
     :action-count="2"
     :filter-count="3"
     :show-search="false"
@@ -317,7 +325,7 @@ onMounted(initFromRouteQuery)
             <div class="expand-panel">
               <div class="expand-header">
                 <span class="expand-title">字段变化明细</span>
-                <span class="expand-count">{{ row.changeCount }} 项变更</span>
+                <span class="expand-count">{{ row.changeCount }} 项变化</span>
               </div>
               <el-table :data="row.changes" size="small" border class="change-table">
                 <el-table-column label="变更字段" min-width="140">

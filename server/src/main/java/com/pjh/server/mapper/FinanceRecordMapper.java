@@ -6,6 +6,7 @@ import com.pjh.server.entity.FinanceRecord;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -52,4 +53,75 @@ public interface FinanceRecordMapper extends BaseMapper<FinanceRecord> {
               AND is_deleted = 0
             """)
     Long selectCountByCompanyId(@Param("companyId") Long companyId);
+
+    @Select("""
+            SELECT id, company_id, type, amount, category, project, date, remark,
+                   created_by, created_time, updated_by, updated_time, is_deleted
+            FROM finance_record
+            WHERE company_id = #{companyId}
+              AND is_deleted = 1
+            ORDER BY updated_time DESC, id DESC
+            """)
+    List<FinanceRecord> selectDeletedByCompanyId(@Param("companyId") Long companyId);
+
+    @Select("""
+            SELECT id, company_id, type, amount, category, project, date, remark,
+                   created_by, created_time, updated_by, updated_time, is_deleted
+            FROM finance_record
+            WHERE company_id = #{companyId}
+              AND id = #{id}
+              AND is_deleted = 1
+            """)
+    FinanceRecord selectDeletedById(@Param("companyId") Long companyId, @Param("id") Long id);
+
+    @Select("""
+            <script>
+            SELECT id, company_id, type, amount, category, project, date, remark,
+                   created_by, created_time, updated_by, updated_time, is_deleted
+            FROM finance_record
+            WHERE company_id = #{companyId}
+              AND is_deleted = 1
+              AND id IN
+              <foreach collection="ids" item="id" open="(" separator="," close=")">
+                #{id}
+              </foreach>
+            ORDER BY updated_time DESC, id DESC
+            </script>
+            """)
+    List<FinanceRecord> selectDeletedByIds(@Param("companyId") Long companyId, @Param("ids") List<Long> ids);
+
+    @Update("""
+            UPDATE finance_record
+            SET is_deleted = 0,
+                updated_by = #{updatedBy},
+                updated_time = NOW()
+            WHERE company_id = #{companyId}
+              AND id = #{id}
+              AND is_deleted = 1
+            """)
+    int restoreDeletedById(
+            @Param("companyId") Long companyId,
+            @Param("id") Long id,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update("""
+            <script>
+            UPDATE finance_record
+            SET is_deleted = 0,
+                updated_by = #{updatedBy},
+                updated_time = NOW()
+            WHERE company_id = #{companyId}
+              AND is_deleted = 1
+              AND id IN
+              <foreach collection="ids" item="id" open="(" separator="," close=")">
+                #{id}
+              </foreach>
+            </script>
+            """)
+    int restoreDeletedBatch(
+            @Param("companyId") Long companyId,
+            @Param("ids") List<Long> ids,
+            @Param("updatedBy") Long updatedBy
+    );
 }
