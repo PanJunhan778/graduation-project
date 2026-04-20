@@ -48,6 +48,20 @@ use([
 type AnalyticsTab = 'finance' | 'hr' | 'tax'
 type TaxDashboardSelectableRange = TaxDashboardRange | ''
 type FinanceTrendViewMode = 'mixed' | 'line' | 'bar'
+type HrChartRenderMode = 'screen' | 'pdf'
+type HrExportChartKind = 'department' | 'trend'
+type TaxChartRenderMode = 'screen' | 'pdf'
+type TaxExportChartKind = 'gauge' | 'structure'
+
+type ExportChartSize = {
+  width: number
+  height: number
+}
+
+type ExportChartCaptureOptions = {
+  backgroundColor?: string
+  trimTransparentPadding?: number
+}
 
 const userStore = useUserStore()
 
@@ -147,6 +161,16 @@ const exportChartImages = reactive({
   taxGauge: '',
   taxType: '',
 })
+
+const HR_EXPORT_CHART_SIZES: Record<HrExportChartKind, ExportChartSize> = {
+  department: { width: 980, height: 400 },
+  trend: { width: 980, height: 320 },
+}
+
+const TAX_EXPORT_CHART_SIZES: Record<TaxExportChartKind, ExportChartSize> = {
+  gauge: { width: 1320, height: 560 },
+  structure: { width: 1280, height: 400 },
+}
 
 const companyLabel = computed(() => userStore.companyName || '当前企业')
 const activeTabLabel = computed(() => tabLabelMap[activeTab.value])
@@ -617,11 +641,13 @@ async function handleExportDashboard() {
     await ensureTabLoaded(activeTab.value)
     await nextTick()
     renderActiveCharts()
-    prepareDashboardExportAssets()
+    await prepareDashboardExportAssets()
     showExportStage.value = true
     await nextTick()
 
-    const sections = [dashboardExportPageOneRef.value, currentTabHasData.value ? dashboardExportPageTwoRef.value : null]
+    const shouldExportSecondPage = currentTabHasData.value && activeTab.value !== 'hr'
+    const exportOrientation = activeTab.value === 'tax' ? 'landscape' : 'portrait'
+    const sections = [dashboardExportPageOneRef.value, shouldExportSecondPage ? dashboardExportPageTwoRef.value : null]
       .filter((element): element is HTMLDivElement => Boolean(element))
       .map((element, index) => ({
         element,
@@ -639,7 +665,7 @@ async function handleExportDashboard() {
         formatPdfTimestamp(),
       ],
       loadingText: '正在生成数据看板 PDF 报告...',
-      orientation: 'portrait',
+      orientation: exportOrientation,
     })
 
     ElMessage.success('数据看板 PDF 报告已开始下载')
@@ -661,19 +687,25 @@ function observeDashboardSize() {
   resizeObserver.observe(dashboardRootRef.value)
 }
 
-function prepareDashboardExportAssets() {
+async function prepareDashboardExportAssets() {
   clearDashboardExportAssets()
 
   if (activeTab.value === 'finance' && financeHasData.value) {
     exportChartImages.financeExpense = captureChartImage('finance-expense')
     exportChartImages.financeIncome = captureChartImage('finance-income')
     exportChartImages.financeTrend = captureChartImage('finance-trend')
-  } else if (activeTab.value === 'hr' && hrHasData.value) {
-    exportChartImages.hrDepartment = captureChartImage('hr-department')
-    exportChartImages.hrTrend = captureChartImage('hr-trend')
-  } else if (activeTab.value === 'tax' && taxHasData.value) {
-    exportChartImages.taxGauge = captureChartImage('tax-gauge')
-    exportChartImages.taxType = captureChartImage('tax-structure')
+  } else if (activeTab.value === 'hr' && hrHasData.value && hrState.data) {
+    ;[exportChartImages.hrDepartment, exportChartImages.hrTrend] = await Promise.all([
+      captureDetachedChartImage(buildHrDepartmentChartOption(hrState.data, 'pdf'), HR_EXPORT_CHART_SIZES.department),
+      captureDetachedChartImage(buildHrTrendChartOption(hrState.data, 'pdf'), HR_EXPORT_CHART_SIZES.trend),
+    ])
+  } else if (activeTab.value === 'tax' && taxHasData.value && taxState.data) {
+    ;[exportChartImages.taxGauge, exportChartImages.taxType] = await Promise.all([
+      captureDetachedChartImage(buildTaxGaugeChartOption(taxState.data, 'pdf'), TAX_EXPORT_CHART_SIZES.gauge, {
+        trimTransparentPadding: 56,
+      }),
+      captureDetachedChartImage(buildTaxTypeChartOption(taxState.data, 'pdf'), TAX_EXPORT_CHART_SIZES.structure),
+    ])
   }
 }
 
@@ -694,6 +726,137 @@ function captureChartImage(key: string) {
   return chart.getDataURL({
     pixelRatio: 2,
     backgroundColor: '#ffffff',
+  })
+}
+
+function loadDataUrlImage(dataUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('加载图表图片失败'))
+    image.src = dataUrl
+  })
+}
+
+async function trimTransparentImageDataUrl(dataUrl: string, padding = 0) {
+  const image = await loadDataUrlImage(dataUrl)
+  const width = image.naturalWidth || image.width
+  const height = image.naturalHeight || image.height
+  const sourceCanvas = document.createElement('canvas')
+  sourceCanvas.width = width
+  sourceCanvas.height = height
+
+  const sourceContext = sourceCanvas.getContext('2d')
+  if (!sourceContext) return dataUrl
+
+  sourceContext.drawImage(image, 0, 0, width, height)
+
+  const { data } = sourceContext.getImageData(0, 0, width, height)
+  let top = height
+  let left = width
+  let right = -1
+  let bottom = -1
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[(y * width + x) * 4 + 3]
+      if (alpha <= 10) continue
+
+      if (x < left) left = x
+      if (x > right) right = x
+      if (y < top) top = y
+      if (y > bottom) bottom = y
+    }
+  }
+
+  if (right < left || bottom < top) return dataUrl
+
+  const cropLeft = Math.max(0, left - padding)
+  const cropTop = Math.max(0, top - padding)
+  const cropRight = Math.min(width - 1, right + padding)
+  const cropBottom = Math.min(height - 1, bottom + padding)
+  const cropWidth = cropRight - cropLeft + 1
+  const cropHeight = cropBottom - cropTop + 1
+
+  if (cropWidth >= width && cropHeight >= height) return dataUrl
+
+  const outputCanvas = document.createElement('canvas')
+  outputCanvas.width = cropWidth
+  outputCanvas.height = cropHeight
+
+  const outputContext = outputCanvas.getContext('2d')
+  if (!outputContext) return dataUrl
+
+  outputContext.drawImage(
+    sourceCanvas,
+    cropLeft,
+    cropTop,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    cropWidth,
+    cropHeight,
+  )
+
+  return outputCanvas.toDataURL('image/png')
+}
+
+async function captureDetachedChartImage(
+  option: any,
+  size: ExportChartSize,
+  captureOptions: ExportChartCaptureOptions = { backgroundColor: '#ffffff' },
+) {
+  const container = document.createElement('div')
+  container.setAttribute('aria-hidden', 'true')
+  container.style.position = 'fixed'
+  container.style.left = '-200vw'
+  container.style.top = '0'
+  container.style.width = `${size.width}px`
+  container.style.height = `${size.height}px`
+  container.style.pointerEvents = 'none'
+  container.style.opacity = '0'
+  document.body.appendChild(container)
+
+  const chart = init(container, undefined, {
+    renderer: 'canvas',
+    width: size.width,
+    height: size.height,
+  })
+
+  try {
+    chart.setOption(option, true)
+    chart.resize()
+    await waitForChartPaint(2)
+
+    const dataUrl = chart.getDataURL({
+      pixelRatio: 2,
+      ...(captureOptions.backgroundColor ? { backgroundColor: captureOptions.backgroundColor } : {}),
+    })
+
+    if (captureOptions.trimTransparentPadding !== undefined) {
+      return await trimTransparentImageDataUrl(dataUrl, captureOptions.trimTransparentPadding)
+    }
+
+    return dataUrl
+  } finally {
+    chart.dispose()
+    container.remove()
+  }
+}
+
+function waitForChartPaint(count: number) {
+  return new Promise<void>((resolve) => {
+    const step = (remaining: number) => {
+      if (remaining <= 0) {
+        resolve()
+        return
+      }
+
+      window.requestAnimationFrame(() => step(remaining - 1))
+    }
+
+    step(count)
   })
 }
 
@@ -1290,17 +1453,15 @@ function getHrDepartmentInsights(data: HrDashboardVO): HrDepartmentInsight[] {
     })
 }
 
-function renderHrDepartmentChart(data: HrDashboardVO) {
+function buildHrDepartmentChartOption(data: HrDashboardVO, mode: HrChartRenderMode = 'screen') {
   const rankedItems = getHrDepartmentInsights(data)
   const items = rankedItems.slice().reverse()
-  if (!hrDepartmentChartRef.value || !items.length) {
-    disposeChart('hr-department')
-    return
-  }
+  const isPdf = mode === 'pdf'
   const topDepartment = rankedItems[0] ?? null
   const topDepartmentIndex = topDepartment ? items.findIndex((item) => item.department === topDepartment.department) : -1
 
-  setChartOption('hr-department', hrDepartmentChartRef.value, {
+  return {
+    animation: !isPdf,
     color: ['#1375d1'],
     tooltip: {
       trigger: 'axis',
@@ -1315,20 +1476,29 @@ function renderHrDepartmentChart(data: HrDashboardVO) {
         return `${first.name}<br/>基础薪资 ${formatCurrency(first.value)}<br/>在职人数 ${formatCount(first.data.employeeCount)} 人<br/>占比 ${formatRatio(first.data.ratio)}`
       },
     },
-    grid: {
-      top: 14,
-      left: 12,
-      right: 104,
-      bottom: 12,
-      containLabel: true,
-    },
+    grid: isPdf
+      ? {
+          top: 10,
+          left: 8,
+          right: 92,
+          bottom: 10,
+          containLabel: true,
+        }
+      : {
+          top: 14,
+          left: 12,
+          right: 104,
+          bottom: 12,
+          containLabel: true,
+        },
     xAxis: {
       type: 'value',
       axisLabel: {
         color: '#615d59',
+        fontSize: isPdf ? 10 : 12,
         formatter: (value: number) => formatAxisCurrency(value),
       },
-      splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+      splitLine: { lineStyle: { color: isPdf ? 'rgba(0,0,0,0.05)' : 'rgba(0,0,0,0.06)' } },
     },
     yAxis: {
       type: 'category',
@@ -1336,37 +1506,39 @@ function renderHrDepartmentChart(data: HrDashboardVO) {
       axisLine: { show: false },
       axisLabel: {
         color: 'rgba(0,0,0,0.88)',
-        formatter: (value: string) => truncateLabel(value, 8),
+        fontSize: isPdf ? 10 : 12,
+        formatter: (value: string) => truncateLabel(value, isPdf ? 8 : 8),
       },
       data: items.map((item) => item.department),
     },
     series: [
       {
         type: 'bar',
-        barWidth: 18,
-        borderRadius: [9, 9, 9, 9],
+        barWidth: isPdf ? 14 : 18,
+        borderRadius: isPdf ? [6, 6, 6, 6] : [9, 9, 9, 9],
         label: {
           show: true,
           position: 'right',
+          distance: isPdf ? 8 : 8,
           formatter: (params: { value: number; data: HrDepartmentInsight; dataIndex: number }) =>
-            params.dataIndex === topDepartmentIndex
+            !isPdf && params.dataIndex === topDepartmentIndex
               ? `{flag|第一负担部门}\n{value|${formatShortCurrency(params.value)} · ${formatRatio(params.data.ratio)}}`
               : `{value|${formatShortCurrency(params.value)} · ${formatRatio(params.data.ratio)}}`,
           rich: {
             flag: {
               color: '#0f6cc8',
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: 600,
-              padding: [4, 8],
+              padding: [3, 6],
               borderRadius: 999,
               backgroundColor: 'rgba(19, 117, 209, 0.10)',
-              lineHeight: 22,
+              lineHeight: 18,
             },
             value: {
               color: '#615d59',
-              fontSize: 13,
+              fontSize: isPdf ? 11 : 13,
               fontWeight: 500,
-              lineHeight: 18,
+              lineHeight: isPdf ? 16 : 18,
             },
           },
         },
@@ -1377,31 +1549,38 @@ function renderHrDepartmentChart(data: HrDashboardVO) {
               ? {
                   color: '#0f6cc8',
                   shadowColor: 'rgba(19, 117, 209, 0.28)',
-                  shadowBlur: 20,
-                  shadowOffsetY: 10,
+                  shadowBlur: isPdf ? 14 : 20,
+                  shadowOffsetY: isPdf ? 8 : 10,
                 }
               : {
                   color: '#1375d1',
                   shadowColor: 'rgba(19, 117, 209, 0.18)',
-                  shadowBlur: 18,
-                  shadowOffsetY: 10,
+                  shadowBlur: isPdf ? 12 : 18,
+                  shadowOffsetY: isPdf ? 8 : 10,
                 },
           ...item,
         })),
       },
     ],
-  })
+  }
 }
 
-function renderHrTrendChart(data: HrDashboardVO) {
-  const items = getHrDepartmentInsights(data)
-  if (!hrTrendChartRef.value || !items.length) {
-    disposeChart('hr-trend')
+function renderHrDepartmentChart(data: HrDashboardVO) {
+  if (!hrDepartmentChartRef.value || !getHrDepartmentInsights(data).length) {
+    disposeChart('hr-department')
     return
   }
 
+  setChartOption('hr-department', hrDepartmentChartRef.value, buildHrDepartmentChartOption(data))
+}
+
+function buildHrTrendChartOption(data: HrDashboardVO, mode: HrChartRenderMode = 'screen') {
+  const items = getHrDepartmentInsights(data)
   const hasManyDepartments = items.length > 8
-  setChartOption('hr-trend', hrTrendChartRef.value, {
+  const isPdf = mode === 'pdf'
+
+  return {
+    animation: !isPdf,
     color: ['#0075de', '#dd5b00'],
     tooltip: {
       trigger: 'axis',
@@ -1422,27 +1601,42 @@ function renderHrTrendChart(data: HrDashboardVO) {
       },
     },
     legend: {
-      top: 0,
+      top: isPdf ? 0 : 0,
       icon: 'roundRect',
-      itemWidth: 12,
-      itemHeight: 8,
-      textStyle: { color: '#615d59' },
+      itemWidth: isPdf ? 10 : 12,
+      itemHeight: isPdf ? 6 : 8,
+      textStyle: {
+        color: '#615d59',
+        fontSize: isPdf ? 10 : 12,
+      },
     },
-    grid: {
-      top: 44,
-      left: 12,
-      right: 12,
-      bottom: hasManyDepartments ? 56 : 16,
-      containLabel: true,
-    },
+    grid: isPdf
+      ? {
+          top: 24,
+          left: 8,
+          right: 8,
+          bottom: items.length > 8 ? 36 : 24,
+          containLabel: true,
+        }
+      : {
+          top: 44,
+          left: 12,
+          right: 12,
+          bottom: hasManyDepartments ? 56 : 16,
+          containLabel: true,
+        },
     xAxis: {
       type: 'category',
       axisTick: { show: false },
       axisLine: { lineStyle: { color: 'rgba(0,0,0,0.08)' } },
       axisLabel: {
         color: '#615d59',
-        formatter: (value: string) => truncateLabel(value, 4),
-        rotate: items.length > 5 ? 18 : 0,
+        fontSize: isPdf ? 10 : 12,
+        interval: isPdf ? 0 : 'auto',
+        hideOverlap: false,
+        formatter: (value: string) => truncateLabel(value, isPdf ? 6 : 4),
+        rotate: isPdf ? (items.length > 8 ? 18 : 0) : items.length > 5 ? 18 : 0,
+        margin: isPdf ? 8 : 8,
       },
       data: items.map((item) => item.department),
     },
@@ -1451,6 +1645,7 @@ function renderHrTrendChart(data: HrDashboardVO) {
         type: 'value',
         axisLabel: {
           color: '#615d59',
+          fontSize: isPdf ? 10 : 12,
           formatter: (value: number) => formatAxisCurrency(value),
         },
         splitLine: { lineStyle: { type: 'dashed', color: 'rgba(0,0,0,0.08)' } },
@@ -1459,38 +1654,41 @@ function renderHrTrendChart(data: HrDashboardVO) {
         type: 'value',
         axisLabel: {
           color: '#615d59',
+          fontSize: isPdf ? 10 : 12,
           formatter: (value: number) => `${value}`,
         },
         splitLine: { show: false },
       },
     ],
-    dataZoom: hasManyDepartments
-      ? [
-          {
-            type: 'inside',
-            startValue: Math.max(items.length - 8, 0),
-            endValue: items.length - 1,
-          },
-          {
-            type: 'slider',
-            height: 18,
-            bottom: 10,
-            brushSelect: false,
-          },
-        ]
-      : [],
+    dataZoom: isPdf
+      ? []
+      : hasManyDepartments
+        ? [
+            {
+              type: 'inside',
+              startValue: Math.max(items.length - 8, 0),
+              endValue: items.length - 1,
+            },
+            {
+              type: 'slider',
+              height: 18,
+              bottom: 10,
+              brushSelect: false,
+            },
+          ]
+        : [],
     series: [
       {
         name: '在职人数',
         type: 'bar',
         yAxisIndex: 1,
-        barWidth: 18,
-        borderRadius: [8, 8, 0, 0],
+        barWidth: isPdf ? 14 : 18,
+        borderRadius: isPdf ? [6, 6, 0, 0] : [8, 8, 0, 0],
         itemStyle: {
           color: '#1375d1',
           shadowColor: 'rgba(19, 117, 209, 0.14)',
-          shadowBlur: 12,
-          shadowOffsetY: 8,
+          shadowBlur: isPdf ? 8 : 12,
+          shadowOffsetY: isPdf ? 6 : 8,
         },
         data: items.map((item) => item.employeeCount),
       },
@@ -1499,25 +1697,30 @@ function renderHrTrendChart(data: HrDashboardVO) {
         type: 'line',
         yAxisIndex: 0,
         smooth: true,
-        symbolSize: 8,
-        lineStyle: { width: 4 },
+        symbolSize: isPdf ? 5 : 8,
+        lineStyle: { width: isPdf ? 3 : 4 },
         areaStyle: { color: 'rgba(221, 91, 0, 0.12)' },
         itemStyle: { color: '#dd5b00' },
         data: items.map((item) => item.averageSalary),
       },
     ],
-  })
+  }
 }
 
-function renderTaxGaugeChart(data: TaxDashboardVO) {
-  if (!taxGaugeChartRef.value) {
-    disposeChart('tax-gauge')
+function renderHrTrendChart(data: HrDashboardVO) {
+  if (!hrTrendChartRef.value || !getHrDepartmentInsights(data).length) {
+    disposeChart('hr-trend')
     return
   }
 
+  setChartOption('hr-trend', hrTrendChartRef.value, buildHrTrendChartOption(data))
+}
+
+function buildTaxGaugeChartOption(data: TaxDashboardVO, mode: TaxChartRenderMode = 'screen') {
   const ratePercent = Number((toNumber(data.taxBurdenRate) * 100).toFixed(1))
   const displayRatePercent = Math.min(ratePercent, 30)
   const hasIncomeBase = toNumber(data.incomeBase) > 0
+  const isPdf = mode === 'pdf'
   const progressColor = hasIncomeBase
     ? ratePercent >= 20
       ? '#e03e3e'
@@ -1526,24 +1729,27 @@ function renderTaxGaugeChart(data: TaxDashboardVO) {
         : '#1aae39'
     : '#a39e98'
 
-  setChartOption('tax-gauge', taxGaugeChartRef.value, {
+  return {
+    animation: !isPdf,
     series: [
       {
         type: 'gauge',
         startAngle: 210,
         endAngle: -30,
+        center: ['50%', isPdf ? '59%' : '58%'],
+        radius: isPdf ? '103%' : '92%',
         min: 0,
         max: 30,
         splitNumber: 3,
         progress: {
           show: hasIncomeBase,
-          width: 18,
+          width: isPdf ? 20 : 18,
           roundCap: true,
           itemStyle: { color: progressColor },
         },
         axisLine: {
           lineStyle: {
-            width: 18,
+            width: isPdf ? 20 : 18,
             color: [
               [10 / 30, 'rgba(26, 174, 57, 0.18)'],
               [20 / 30, 'rgba(221, 91, 0, 0.16)'],
@@ -1554,32 +1760,32 @@ function renderTaxGaugeChart(data: TaxDashboardVO) {
         pointer: { show: false },
         axisTick: { show: false },
         splitLine: {
-          distance: -22,
-          length: 16,
+          distance: isPdf ? -20 : -22,
+          length: isPdf ? 12 : 16,
           lineStyle: {
             color: 'rgba(255,255,255,0.96)',
-            width: 3,
+            width: isPdf ? 2 : 3,
           },
         },
         axisLabel: {
-          distance: 8,
+          distance: isPdf ? 4 : 8,
           color: '#615d59',
-          fontSize: 12,
+          fontSize: isPdf ? 10 : 12,
           fontWeight: 500,
           formatter: (value: number) => ([0, 10, 20, 30].includes(value) ? `${value}%` : ''),
         },
         detail: {
-          valueAnimation: true,
-          offsetCenter: [0, '46%'],
+          valueAnimation: !isPdf,
+          offsetCenter: [0, isPdf ? '40%' : '46%'],
           formatter: () => (hasIncomeBase ? `${ratePercent.toFixed(1)}%` : '—'),
           color: 'rgba(0,0,0,0.95)',
-          fontSize: 34,
+          fontSize: isPdf ? 39 : 34,
           fontWeight: 700,
         },
         title: {
-          offsetCenter: [0, '64%'],
+          offsetCenter: [0, isPdf ? '56%' : '64%'],
           color: '#615d59',
-          fontSize: 13,
+          fontSize: isPdf ? 12 : 13,
           fontWeight: 500,
         },
         data: [
@@ -1590,22 +1796,29 @@ function renderTaxGaugeChart(data: TaxDashboardVO) {
         ],
       },
     ],
-  })
+  }
 }
 
-function renderTaxTypeChart(data: TaxDashboardVO) {
-  if (!taxTypeChartRef.value || !data.taxTypeStructure.length) {
-    disposeChart('tax-structure')
+function renderTaxGaugeChart(data: TaxDashboardVO) {
+  if (!taxGaugeChartRef.value) {
+    disposeChart('tax-gauge')
     return
   }
 
+  setChartOption('tax-gauge', taxGaugeChartRef.value, buildTaxGaugeChartOption(data))
+}
+
+function buildTaxTypeChartOption(data: TaxDashboardVO, mode: TaxChartRenderMode = 'screen') {
   const items = [...data.taxTypeStructure].reverse()
   const topTaxType = data.taxTypeStructure[0] ?? null
   const topTaxTypeIndex = topTaxType ? items.findIndex((item) => item.taxType === topTaxType.taxType) : -1
   const topTaxTypeShareValue = toNumber(topTaxType?.ratio)
   const topTaxTypeLabelColor = topTaxTypeShareValue >= 0.5 ? '#dd5b00' : '#213183'
   const topTaxTypeLabelBackground = topTaxTypeShareValue >= 0.5 ? 'rgba(221, 91, 0, 0.10)' : 'rgba(33, 49, 131, 0.08)'
-  setChartOption('tax-structure', taxTypeChartRef.value, {
+  const isPdf = mode === 'pdf'
+
+  return {
+    animation: !isPdf,
     color: ['#213183'],
     tooltip: {
       trigger: 'axis',
@@ -1621,20 +1834,29 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
         return `${first.name}<br/>税额 ${formatCurrency(first.value)}<br/>占比 ${formatRatio(toNumber(currentItem?.ratio))}`
       },
     },
-    grid: {
-      top: 18,
-      left: 12,
-      right: 104,
-      bottom: 12,
-      containLabel: true,
-    },
+    grid: isPdf
+      ? {
+          top: 8,
+          left: 0,
+          right: 66,
+          bottom: 2,
+          containLabel: true,
+        }
+      : {
+          top: 18,
+          left: 12,
+          right: 104,
+          bottom: 12,
+          containLabel: true,
+        },
     xAxis: {
       type: 'value',
       axisLabel: {
         color: '#615d59',
+        fontSize: isPdf ? 9 : 12,
         formatter: (value: number) => formatAxisCurrency(value),
       },
-      splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+      splitLine: { lineStyle: { color: isPdf ? 'rgba(0,0,0,0.05)' : 'rgba(0,0,0,0.06)' } },
     },
     yAxis: {
       type: 'category',
@@ -1642,18 +1864,20 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
       axisLine: { show: false },
       axisLabel: {
         color: 'rgba(0,0,0,0.88)',
-        formatter: (value: string) => truncateLabel(value, 7),
+        fontSize: isPdf ? 10 : 12,
+        formatter: (value: string) => truncateLabel(value, isPdf ? 9 : 7),
       },
       data: items.map((item) => item.taxType),
     },
     series: [
       {
         type: 'bar',
-        barWidth: 16,
-        borderRadius: [8, 8, 8, 8],
+        barWidth: isPdf ? 15 : 16,
+        borderRadius: isPdf ? [6, 6, 6, 6] : [8, 8, 8, 8],
         label: {
           show: true,
           position: 'right',
+          distance: isPdf ? 5 : 8,
           formatter: (params: { value: number; dataIndex: number }) => {
             const currentItem = items[params.dataIndex]
             return params.dataIndex === topTaxTypeIndex
@@ -1663,23 +1887,23 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
           rich: {
             flag: {
               color: topTaxTypeLabelColor,
-              fontSize: 11,
+              fontSize: isPdf ? 9 : 11,
               fontWeight: 600,
-              padding: [4, 8],
+              padding: isPdf ? [2, 5] : [4, 8],
               borderRadius: 999,
               backgroundColor: topTaxTypeLabelBackground,
-              lineHeight: 22,
+              lineHeight: isPdf ? 16 : 22,
             },
             amount: {
               color: '#615d59',
-              fontSize: 12,
+              fontSize: isPdf ? 10 : 12,
               fontWeight: 600,
-              lineHeight: 18,
+              lineHeight: isPdf ? 14 : 18,
             },
             ratio: {
               color: '#8d877f',
-              fontSize: 11,
-              lineHeight: 15,
+              fontSize: isPdf ? 9 : 11,
+              lineHeight: isPdf ? 12 : 15,
             },
           },
         },
@@ -1691,25 +1915,34 @@ function renderTaxTypeChart(data: TaxDashboardVO) {
                 ? {
                     color: '#dd5b00',
                     shadowColor: 'rgba(221, 91, 0, 0.20)',
-                    shadowBlur: 18,
-                    shadowOffsetY: 8,
+                    shadowBlur: isPdf ? 8 : 18,
+                    shadowOffsetY: isPdf ? 4 : 8,
                   }
                 : {
                     color: '#213183',
                     shadowColor: 'rgba(33, 49, 131, 0.18)',
-                    shadowBlur: 18,
-                    shadowOffsetY: 8,
+                    shadowBlur: isPdf ? 8 : 18,
+                    shadowOffsetY: isPdf ? 4 : 8,
                   }
               : {
                   color: 'rgba(33, 49, 131, 0.94)',
                   shadowColor: 'rgba(33, 49, 131, 0.10)',
-                  shadowBlur: 12,
-                  shadowOffsetY: 6,
+                  shadowBlur: isPdf ? 6 : 12,
+                  shadowOffsetY: isPdf ? 3 : 6,
                 },
         })),
       },
     ],
-  })
+  }
+}
+
+function renderTaxTypeChart(data: TaxDashboardVO) {
+  if (!taxTypeChartRef.value || !data.taxTypeStructure.length) {
+    disposeChart('tax-structure')
+    return
+  }
+
+  setChartOption('tax-structure', taxTypeChartRef.value, buildTaxTypeChartOption(data))
 }
 
 function setChartOption(key: string, container: HTMLDivElement, option: any) {
@@ -2452,14 +2685,69 @@ function toNumber(value: number | string | undefined | null) {
       </el-tab-pane>
     </el-tabs>
 
-    <div v-if="showExportStage" class="pdf-export-stage" aria-hidden="true">
-      <section ref="dashboardExportPageOneRef" class="pdf-page">
-        <div class="pdf-page-header">
-          <span class="hero-badge">Owner Analytics</span>
-          <span class="hero-period">{{ companyLabel }} · {{ activeTabLabel }} · {{ activeRangeLabel }}</span>
+    <div
+      v-if="showExportStage"
+      :class="['pdf-export-stage', { 'pdf-export-stage--tax-landscape': activeTab === 'tax' && taxState.data }]"
+      aria-hidden="true"
+    >
+      <section
+        ref="dashboardExportPageOneRef"
+        :class="[
+          'pdf-page',
+          {
+            'pdf-page--hr-single': activeTab === 'hr',
+            'pdf-page--tax-overview': activeTab === 'tax' && taxState.data,
+            'pdf-page--landscape-tax': activeTab === 'tax' && taxState.data,
+          },
+        ]"
+      >
+        <div class="pdf-page-header" :class="{ 'pdf-page-header--hr-single': activeTab === 'hr' }">
+          <template v-if="activeTab === 'hr'">
+            <div>
+              <span class="hero-badge">Owner Analytics</span>
+              <h3 class="pdf-section-title pdf-section-title--lead">{{ activeTabLabel }}</h3>
+            </div>
+            <span class="hero-period">{{ companyLabel }} · {{ activeRangeLabel }}</span>
+          </template>
+          <template v-else>
+            <span class="hero-badge">Owner Analytics</span>
+            <span class="hero-period">{{ companyLabel }} · {{ activeTabLabel }} · {{ activeRangeLabel }}</span>
+          </template>
         </div>
 
-        <section class="pdf-hero-card ds-card">
+        <section
+          v-if="activeTab === 'hr' && currentTabHasData && hrState.data"
+          class="pdf-card ds-card pdf-card--hr-intro"
+        >
+          <div class="pdf-card--hr-intro-row">
+            <div class="pdf-card--hr-intro-copy">
+              <span class="note-label">单页导出视图</span>
+              <p class="pdf-copy--hr-intro">
+                把团队体量、基础薪资和部门负担压缩到一页里，方便评审汇报时快速判断当前人力成本重心。
+              </p>
+            </div>
+            <div v-if="hrTopDepartment" class="pdf-hero-chip">
+              <span>重点部门</span>
+              <strong>{{ hrTopDepartment.department }}</strong>
+            </div>
+          </div>
+        </section>
+        <section
+          v-else-if="activeTab === 'tax' && currentTabHasData && taxState.data"
+          class="pdf-card ds-card pdf-card--tax-intro"
+        >
+          <div class="pdf-card--tax-intro-row">
+            <div class="pdf-card--tax-intro-copy">
+              <span class="note-label">税负概览</span>
+              <p class="pdf-copy--tax-intro">{{ taxRiskHeadline }}</p>
+            </div>
+            <div class="pdf-tax-intro-chip" :class="`is-${taxGaugeSummaryTone}`">
+              <span>风险判断</span>
+              <strong>{{ taxGaugeSummaryValue }}</strong>
+            </div>
+          </div>
+        </section>
+        <section v-else class="pdf-hero-card ds-card">
           <div class="pdf-hero-copy">
             <span class="note-label">图表优先视图</span>
             <h2>{{ activeTabLabel }}</h2>
@@ -2523,26 +2811,26 @@ function toNumber(value: number | string | undefined | null) {
           </template>
 
           <template v-else-if="activeTab === 'hr' && hrState.data">
-            <section class="pdf-summary-grid">
-              <article class="summary-card ds-card">
+            <section class="pdf-summary-grid pdf-summary-grid--hr">
+              <article class="summary-card ds-card summary-card--hr">
                 <span class="summary-label">当前在职人数</span>
                 <strong class="summary-value">{{ formatCount(hrState.data.activeEmployeeCount) }} 人</strong>
                 <p>按当前 `status=1` 的员工记录统计。</p>
               </article>
 
-              <article class="summary-card ds-card">
+              <article class="summary-card ds-card summary-card--hr">
                 <span class="summary-label">当前基础薪资总额</span>
                 <strong class="summary-value income">{{ formatCurrency(hrState.data.activeSalaryTotal) }}</strong>
                 <p>用于观察固定人力成本的当前压力。</p>
               </article>
 
-              <article class="summary-card ds-card">
+              <article class="summary-card ds-card summary-card--hr">
                 <span class="summary-label">人均基础薪资</span>
                 <strong class="summary-value">{{ formatCurrency(hrAverageSalary) }}</strong>
                 <p>帮助判断当前团队的人力单价是否偏高。</p>
               </article>
 
-              <article class="summary-card ds-card">
+              <article class="summary-card ds-card summary-card--hr">
                 <span class="summary-label">最高负担部门</span>
                 <strong class="summary-value">{{ hrTopDepartment ? formatRatio(hrTopDepartment.ratio) : '—' }}</strong>
                 <p>
@@ -2555,75 +2843,132 @@ function toNumber(value: number | string | undefined | null) {
               </article>
             </section>
 
-            <article class="pdf-card ds-card">
-              <div class="panel-header">
-                <div>
-                  <h3>部门薪资负担排序</h3>
-                  <p>第一页先看当前基础薪资主要压在哪些部门，再判断人力成本是否过度集中。</p>
+            <section class="pdf-chart-stack--hr">
+              <article class="pdf-card ds-card pdf-card--hr-compact pdf-card--hr-trend">
+                <div class="panel-header panel-header--pdf-compact">
+                  <div>
+                    <h3>部门人数与人均基础薪资</h3>
+                    <p>把团队体量与人均单价放在一起看，判断成本究竟由规模还是岗位单价驱动。</p>
+                  </div>
                 </div>
-              </div>
 
-              <div v-if="exportChartImages.hrDepartment" class="pdf-chart-frame">
-                <img :src="exportChartImages.hrDepartment" alt="部门薪资负担排序图" class="pdf-chart-image" />
-              </div>
-              <div v-else class="panel-empty compact">
-                <h4>暂无团队结构</h4>
-                <p>当前没有可用于聚合的在职员工。</p>
-              </div>
-            </article>
+                <div v-if="exportChartImages.hrTrend" class="pdf-chart-frame pdf-chart-frame--hr pdf-chart-frame--hr-trend">
+                  <img
+                    :src="exportChartImages.hrTrend"
+                    alt="部门人数与人均基础薪资图"
+                    class="pdf-chart-image pdf-chart-image--hr"
+                  />
+                </div>
+                <div v-else class="panel-empty compact panel-empty--pdf-hr">
+                  <h4>暂无部门对比</h4>
+                  <p>当前没有足够的部门数据可用于比较人数和人均薪资。</p>
+                </div>
+              </article>
+
+              <article class="pdf-card ds-card pdf-card--hr-compact pdf-card--hr-department">
+                <div class="panel-header panel-header--pdf-compact">
+                  <div>
+                    <h3>部门薪资负担排序</h3>
+                    <p>先看基础薪资主要压在哪些部门，快速判断人力成本是否过度集中。</p>
+                  </div>
+                </div>
+
+                <div
+                  v-if="exportChartImages.hrDepartment"
+                  class="pdf-chart-frame pdf-chart-frame--hr pdf-chart-frame--hr-department"
+                >
+                  <img
+                    :src="exportChartImages.hrDepartment"
+                    alt="部门薪资负担排序图"
+                    class="pdf-chart-image pdf-chart-image--hr"
+                  />
+                </div>
+                <div v-else class="panel-empty compact panel-empty--pdf-hr">
+                  <h4>暂无团队结构</h4>
+                  <p>当前没有可用于聚合的在职员工。</p>
+                </div>
+              </article>
+            </section>
           </template>
 
           <template v-else-if="taxState.data">
-            <section class="pdf-summary-grid">
-              <article class="summary-card ds-card">
-                <span class="summary-label">正向税额合计</span>
-                <strong class="summary-value">{{ formatCurrency(taxState.data.positiveTaxAmount) }}</strong>
-                <p>只统计大于 0 的税额，用于税负率和税种结构。</p>
-              </article>
+            <article class="pdf-card ds-card pdf-card--tax-overview-main">
+              <div class="pdf-tax-overview-main">
+                <section class="pdf-tax-overview-hero">
+                  <div class="panel-header panel-header--pdf-compact pdf-panel-header--tax-gauge">
+                    <div>
+                      <h3>综合税负率</h3>
+                      <p>先看税负强度，再判断风险重点是税负偏高还是待缴情形积压。</p>
+                    </div>
+                  </div>
 
-              <article class="summary-card ds-card">
-                <span class="summary-label">待缴税额</span>
-                <strong class="summary-value expense">{{ formatCurrency(taxState.data.unpaidTaxAmount) }}</strong>
-                <p>当前范围内待缴且税额为正的风险金额。</p>
-              </article>
+                  <div v-if="exportChartImages.taxGauge" class="pdf-tax-gauge-stage">
+                    <div class="pdf-tax-gauge-canvas">
+                      <img
+                        :src="exportChartImages.taxGauge"
+                        alt="综合税负率仪表盘"
+                        class="pdf-chart-image pdf-chart-image--tax-gauge"
+                      />
+                    </div>
+                  </div>
+                  <div v-else class="panel-empty compact panel-empty--pdf-tax-gauge">
+                    <h4>暂无税负率图表</h4>
+                    <p>当前范围内没有足够数据生成税负率图表。</p>
+                  </div>
 
-              <article class="summary-card ds-card">
-                <span class="summary-label">当前税负率</span>
-                <strong class="summary-value" :class="taxBurdenTone === 'danger' ? 'expense' : taxBurdenTone === 'healthy' ? 'income' : ''">
-                  {{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}
-                </strong>
-                <p>判断当前税负强度是否已经产生经营压力。</p>
-              </article>
+                  <div class="pdf-tax-meta-strip">
+                    <div class="pdf-tax-meta-pill">
+                      <span>税负口径</span>
+                      <strong>正向税额 / 正向收入基线</strong>
+                    </div>
+                    <div class="pdf-tax-meta-pill">
+                      <span>对比基线</span>
+                      <strong>{{ taxComparisonLabel }}</strong>
+                    </div>
+                    <div v-if="taxTopTaxType" class="pdf-tax-meta-pill">
+                      <span>税种焦点</span>
+                      <strong>{{ taxTopTaxTypeSummaryName }} · {{ formatRatio(taxTopTaxTypeShare) }}</strong>
+                    </div>
+                    <div class="gauge-notes gauge-notes--pdf-tax pdf-tax-note-strip">
+                      <div class="note-chip tone-healthy">0%-10% 观察线</div>
+                      <div class="note-chip tone-warning">10%-20% 关注线</div>
+                      <div class="note-chip tone-danger">20%+ 高压线</div>
+                    </div>
+                  </div>
+                </section>
 
-              <article class="summary-card ds-card">
-                <span class="summary-label">待缴情形占比</span>
-                <strong class="summary-value" :class="taxUnpaidRatio > 0 ? 'expense' : ''">
-                  {{ toNumber(taxState.data.positiveTaxAmount) > 0 ? formatRatio(taxUnpaidRatio) : '0.0%' }}
-                </strong>
-                <p>待缴税额占产生正向税额的比例，确认风险影响面。</p>
-              </article>
-            </section>
+                <aside class="pdf-tax-kpi-rail">
+                  <div class="summary-card--tax-rail">
+                    <span class="summary-label">正向税额合计</span>
+                    <strong class="summary-value">{{ formatCurrency(taxState.data.positiveTaxAmount) }}</strong>
+                    <p>只统计大于 0 的税额，用于税负率和税种结构。</p>
+                  </div>
 
-            <article class="pdf-card ds-card">
-              <div class="panel-header">
-                <div>
-                  <h3>综合税负率</h3>
-                  <p>口径 = 正向税额 / 正向收入基线。</p>
-                </div>
-              </div>
+                  <div class="summary-card--tax-rail">
+                    <span class="summary-label">待缴税额</span>
+                    <strong class="summary-value expense">{{ formatCurrency(taxState.data.unpaidTaxAmount) }}</strong>
+                    <p>当前范围内待缴且税额为正的风险金额。</p>
+                  </div>
 
-              <div v-if="exportChartImages.taxGauge" class="pdf-chart-frame">
-                <img :src="exportChartImages.taxGauge" alt="综合税负率仪表盘" class="pdf-chart-image" />
-              </div>
-              <div v-else class="panel-empty compact">
-                <h4>暂无税负率图表</h4>
-                <p>当前范围内没有足够数据生成税负率图表。</p>
-              </div>
+                  <div class="summary-card--tax-rail">
+                    <span class="summary-label">当前税负率</span>
+                    <strong
+                      class="summary-value"
+                      :class="taxBurdenTone === 'danger' ? 'expense' : taxBurdenTone === 'healthy' ? 'income' : ''"
+                    >
+                      {{ toNumber(taxState.data.incomeBase) > 0 ? formatRatio(taxState.data.taxBurdenRate) : '暂无基线' }}
+                    </strong>
+                    <p>判断当前税负强度是否已经产生经营压力。</p>
+                  </div>
 
-              <div class="gauge-notes">
-                <div class="note-chip tone-healthy">0%-10% 观察线</div>
-                <div class="note-chip tone-warning">10%-20% 关注线</div>
-                <div class="note-chip tone-danger">20%+ 高压线</div>
+                  <div class="summary-card--tax-rail">
+                    <span class="summary-label">待缴情形占比</span>
+                    <strong class="summary-value" :class="taxUnpaidRatio > 0 ? 'expense' : ''">
+                      {{ toNumber(taxState.data.positiveTaxAmount) > 0 ? formatRatio(taxUnpaidRatio) : '0.0%' }}
+                    </strong>
+                    <p>确认待缴税额对正向税额的影响范围。</p>
+                  </div>
+                </aside>
               </div>
             </article>
           </template>
@@ -2640,9 +2985,16 @@ function toNumber(value: number | string | undefined | null) {
       </section>
 
       <section
-        v-if="currentTabHasData"
+        v-if="currentTabHasData && activeTab !== 'hr'"
         ref="dashboardExportPageTwoRef"
-        :class="['pdf-page', { 'pdf-page--finance-secondary': activeTab === 'finance' && financeState.data }]"
+        :class="[
+          'pdf-page',
+          {
+            'pdf-page--finance-secondary': activeTab === 'finance' && financeState.data,
+            'pdf-page--tax-detail': activeTab === 'tax' && taxState.data,
+            'pdf-page--landscape-tax': activeTab === 'tax' && taxState.data,
+          },
+        ]"
       >
         <div class="pdf-page-header">
           <div>
@@ -2701,56 +3053,77 @@ function toNumber(value: number | string | undefined | null) {
           </section>
         </template>
 
-        <template v-else-if="activeTab === 'hr' && hrState.data">
-          <article class="pdf-card ds-card">
-              <div class="panel-header">
-                <div>
-                  <h3>部门人数与人均基础薪资</h3>
-                  <p>第二层把部门体量与人均单价放在一起看，判断成本究竟由规模还是岗位单价驱动。</p>
-                </div>
-              </div>
-
-              <div v-if="exportChartImages.hrTrend" class="pdf-chart-frame">
-                <img :src="exportChartImages.hrTrend" alt="部门人数与人均基础薪资图" class="pdf-chart-image" />
-              </div>
-              <div v-else class="panel-empty compact">
-                <h4>暂无部门对比</h4>
-                <p>当前没有足够的部门数据可用于比较人数和人均薪资。</p>
-              </div>
-          </article>
-        </template>
-
         <template v-else-if="taxState.data">
-          <article class="pdf-card ds-card">
-              <div class="panel-header">
-                <div>
+          <section class="pdf-tax-page-stack">
+            <article class="pdf-card ds-card pdf-card--tax-type">
+              <div class="panel-header panel-header--pdf-compact panel-header--tax-type">
+                <div class="pdf-tax-structure-copy">
                   <h3>税种结构</h3>
                   <p>负数退税不进入结构分布，但会保留在下方状态摘要金额里。</p>
+                  <p v-if="taxTopTaxType" class="pdf-tax-type-highlight">
+                    税压主要来自 <strong>{{ taxTopTaxTypeSummaryName }}</strong>，占正向税额 {{ formatRatio(taxTopTaxTypeShare) }}
+                  </p>
                 </div>
               </div>
 
-              <div v-if="exportChartImages.taxType" class="pdf-chart-frame">
-                <img :src="exportChartImages.taxType" alt="税种结构图" class="pdf-chart-image" />
+              <div v-if="exportChartImages.taxType" class="pdf-chart-frame pdf-chart-frame--tax-type">
+                <img :src="exportChartImages.taxType" alt="税种结构图" class="pdf-chart-image pdf-chart-image--tax-type" />
               </div>
-              <div v-else class="panel-empty compact">
+              <div v-else class="panel-empty compact panel-empty--pdf-tax-type">
                 <h4>暂无税种结构</h4>
                 <p>当前范围内没有正向税额。</p>
               </div>
-          </article>
+            </article>
 
-          <section class="pdf-status-grid">
-            <article
-              v-for="item in taxState.data.statusSummary"
-              :key="'pdf-' + item.status"
-              class="status-card ds-card"
-              :class="getTaxStatusClass(item.status)"
-            >
-              <div class="status-top">
-                <span class="status-label">{{ getTaxStatusLabel(item.status) }}</span>
-                <span class="status-count">{{ formatCount(item.count) }} 笔</span>
+            <article class="pdf-card ds-card pdf-status-overview--tax">
+              <div class="panel-header panel-header--pdf-compact">
+                <div>
+                  <h3>缴情状态组成</h3>
+                  <p>先看记录结构，再结合每种状态的金额摘要判断当前风险重心。</p>
+                </div>
+                <span class="status-overview__count">{{ formatCount(taxStatusTotalCount) }} 笔</span>
               </div>
-              <div class="status-value">{{ formatCurrency(item.amount) }}</div>
-              <p>展示当前统计范围内该缴纳状态的记录金额总和。</p>
+
+              <div class="pdf-status-overview__body">
+                <div class="status-composition status-composition--pdf">
+                  <div class="status-composition__track status-composition__track--pdf">
+                    <span
+                      v-for="item in taxStatusBreakdown"
+                      :key="'pdf-status-segment-' + item.status"
+                      class="status-composition__segment"
+                      :class="getTaxStatusClass(item.status)"
+                      :style="{ width: item.ratio * 100 + '%' }"
+                    />
+                  </div>
+                  <div class="pdf-status-legend-list">
+                    <div
+                      v-for="item in taxStatusBreakdown"
+                      :key="'pdf-status-legend-' + item.status"
+                      class="pdf-status-legend-item"
+                    >
+                      <span class="status-dot" :class="getTaxStatusClass(item.status)" />
+                      <span>{{ item.label }}</span>
+                      <strong>{{ formatRatio(item.ratio) }}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <section class="pdf-status-grid pdf-status-grid--tax">
+                  <article
+                    v-for="item in taxState.data.statusSummary"
+                    :key="'pdf-' + item.status"
+                    class="status-card ds-card status-card--compact status-card--pdf-tax"
+                    :class="getTaxStatusClass(item.status)"
+                  >
+                    <div class="status-top">
+                      <span class="status-label">{{ getTaxStatusLabel(item.status) }}</span>
+                      <span class="status-count">{{ formatCount(item.count) }} 笔</span>
+                    </div>
+                    <div class="status-value">{{ formatCurrency(item.amount) }}</div>
+                    <p>展示当前统计范围内该缴情状态对应的记录笔数和金额。</p>
+                  </article>
+                </section>
+              </div>
             </article>
           </section>
         </template>
@@ -4036,6 +4409,10 @@ function toNumber(value: number | string | undefined | null) {
   z-index: -1;
 }
 
+.pdf-export-stage--tax-landscape {
+  width: 1123px;
+}
+
 .pdf-page {
   width: 794px;
   min-height: 1123px;
@@ -4045,6 +4422,13 @@ function toNumber(value: number | string | undefined | null) {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.pdf-page--landscape-tax {
+  width: 1123px;
+  min-height: 794px;
+  padding: 28px 30px;
+  gap: 12px;
 }
 
 .pdf-page-header {
@@ -4100,6 +4484,449 @@ function toNumber(value: number | string | undefined | null) {
   gap: 16px;
 }
 
+.pdf-page--hr-single {
+  gap: 12px;
+}
+
+.pdf-page-header--hr-single {
+  align-items: flex-end;
+}
+
+.pdf-section-title--lead {
+  margin-top: 10px;
+  font-size: 34px;
+  letter-spacing: -0.875px;
+}
+
+.pdf-card--hr-intro {
+  padding: 14px 18px;
+  gap: 8px;
+}
+
+.pdf-card--hr-intro-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pdf-card--hr-intro-copy {
+  max-width: 52ch;
+}
+
+.pdf-copy--hr-intro {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #615d59;
+}
+
+.pdf-hero-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 132px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(19, 117, 209, 0.08);
+  color: #0f6cc8;
+  flex-shrink: 0;
+}
+
+.pdf-hero-chip span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.76;
+}
+
+.pdf-hero-chip strong {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.pdf-summary-grid--hr {
+  gap: 10px;
+}
+
+.summary-card--hr {
+  padding: 16px 18px;
+}
+
+.summary-card--hr .summary-label {
+  font-size: 11px;
+}
+
+.summary-card--hr .summary-value {
+  margin-top: 6px;
+  font-size: 24px;
+  letter-spacing: -0.4px;
+}
+
+.summary-card--hr p {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.pdf-chart-stack--hr {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pdf-page--tax-overview,
+.pdf-page--tax-detail {
+  gap: 12px;
+}
+
+.pdf-card--tax-intro {
+  padding: 12px 16px;
+}
+
+.pdf-card--tax-intro-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.pdf-card--tax-intro-copy {
+  max-width: 78ch;
+}
+
+.pdf-copy--tax-intro {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #403c38;
+}
+
+.pdf-tax-intro-chip {
+  min-width: 132px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.pdf-tax-intro-chip span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.78;
+}
+
+.pdf-tax-intro-chip strong {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.pdf-tax-intro-chip.is-healthy,
+.pdf-tax-insight.is-healthy {
+  color: #138f35;
+  background: rgba(26, 174, 57, 0.10);
+}
+
+.pdf-tax-intro-chip.is-warning,
+.pdf-tax-insight.is-warning {
+  color: #c85b06;
+  background: rgba(221, 91, 0, 0.10);
+}
+
+.pdf-tax-intro-chip.is-danger,
+.pdf-tax-insight.is-danger {
+  color: #d23b3b;
+  background: rgba(224, 62, 62, 0.10);
+}
+
+.pdf-tax-intro-chip.is-muted,
+.pdf-tax-insight.is-muted {
+  color: #736d67;
+  background: rgba(163, 158, 152, 0.12);
+}
+
+.pdf-card--tax-overview-main {
+  flex: 1;
+  gap: 0;
+  padding: 18px 20px 18px;
+}
+
+.pdf-tax-overview-main {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 292px;
+  gap: 18px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+
+.pdf-tax-overview-hero {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  min-height: 0;
+}
+
+.pdf-panel-header--tax-gauge {
+  margin-bottom: 2px;
+}
+
+.pdf-tax-gauge-stage {
+  min-height: 368px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.pdf-tax-gauge-canvas {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel-empty--pdf-tax-gauge {
+  min-height: 368px;
+}
+
+.pdf-chart-image--tax-gauge {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  object-position: center center;
+  display: block;
+  margin: 0 auto;
+}
+
+.pdf-tax-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.pdf-tax-meta-pill {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.pdf-tax-meta-pill span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8d877f;
+}
+
+.pdf-tax-meta-pill strong {
+  color: rgba(0, 0, 0, 0.92);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.gauge-notes--pdf-tax {
+  margin-top: 0;
+  gap: 6px;
+}
+
+.gauge-notes--pdf-tax .note-chip {
+  padding: 5px 9px;
+  font-size: 10px;
+}
+
+.pdf-tax-note-strip {
+  flex: 1 1 100%;
+}
+
+.pdf-tax-kpi-rail {
+  display: grid;
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+}
+
+.summary-card--tax-rail {
+  padding: 14px 16px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 0;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.summary-card--tax-rail .summary-label {
+  font-size: 11px;
+}
+
+.summary-card--tax-rail .summary-value {
+  margin-top: 0;
+  font-size: 24px;
+  letter-spacing: -0.4px;
+}
+
+.summary-card--tax-rail p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+.pdf-tax-page-stack {
+  display: grid;
+  grid-template-rows: minmax(0, 1.18fr) minmax(0, 0.82fr);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.pdf-card--tax-type,
+.pdf-status-overview--tax {
+  gap: 10px;
+  padding: 16px 18px;
+  min-height: 0;
+}
+
+.panel-header--tax-type {
+  align-items: flex-start;
+}
+
+.pdf-tax-structure-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pdf-tax-type-highlight {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #5a5651;
+}
+
+.pdf-tax-type-highlight strong {
+  color: #213183;
+  font-weight: 700;
+}
+
+.pdf-chart-frame--tax-type {
+  padding: 4px 0 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.pdf-chart-image--tax-type {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.pdf-status-overview__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.status-composition--pdf {
+  gap: 8px;
+}
+
+.status-composition__track--pdf {
+  height: 14px;
+}
+
+.pdf-status-legend-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pdf-status-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 11px;
+  color: #615d59;
+}
+
+.pdf-status-legend-item strong {
+  color: rgba(0, 0, 0, 0.9);
+  font-weight: 700;
+}
+
+.pdf-status-grid--tax {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-card--pdf-tax {
+  padding: 14px 16px 12px;
+}
+
+.status-card--pdf-tax .status-label,
+.status-card--pdf-tax .status-count {
+  font-size: 11px;
+}
+
+.status-card--pdf-tax .status-value {
+  margin-top: 8px;
+  font-size: 21px;
+}
+
+.status-card--pdf-tax p {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.pdf-page--landscape-tax .pdf-page-header {
+  align-items: center;
+}
+
+.pdf-page--landscape-tax .pdf-section-title {
+  font-size: 24px;
+}
+
+.pdf-page--landscape-tax .hero-period {
+  font-size: 13px;
+}
+
+.pdf-page--landscape-tax .panel-header h3 {
+  font-size: 18px;
+}
+
+.pdf-page--landscape-tax .panel-header p {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pdf-page--tax-detail.pdf-page--landscape-tax {
+  gap: 10px;
+}
+
 .pdf-page--finance-secondary {
   gap: 16px;
 }
@@ -4127,6 +4954,30 @@ function toNumber(value: number | string | undefined | null) {
   flex: 1;
   gap: 12px;
   padding: 24px 26px;
+}
+
+.pdf-card--hr-compact {
+  gap: 10px;
+  padding: 16px 16px 14px;
+}
+
+.pdf-card--hr-compact .panel-header h3 {
+  font-size: 17px;
+}
+
+.pdf-card--hr-compact .panel-header p {
+  margin-top: 4px;
+  max-width: 60ch;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.pdf-card--hr-trend {
+  gap: 8px;
+}
+
+.pdf-card--hr-department {
+  gap: 8px;
 }
 
 .panel-header--pdf-compact {
@@ -4157,10 +5008,26 @@ function toNumber(value: number | string | undefined | null) {
   padding: 10px;
 }
 
+.pdf-chart-frame--hr {
+  padding: 8px;
+}
+
+.pdf-chart-frame--hr-trend {
+  min-height: 0;
+}
+
+.pdf-chart-frame--hr-department {
+  min-height: 0;
+}
+
 .pdf-chart-image {
   display: block;
   width: 100%;
   border-radius: 12px;
+}
+
+.pdf-chart-image--hr {
+  height: auto;
 }
 
 .pdf-chart-image--finance-secondary {
@@ -4181,6 +5048,17 @@ function toNumber(value: number | string | undefined | null) {
   margin-top: 0;
   flex: 1;
   min-height: 290px;
+}
+
+.panel-empty.compact.panel-empty--pdf-tax-gauge,
+.panel-empty.compact.panel-empty--pdf-tax-type {
+  margin-top: 0;
+  min-height: 220px;
+}
+
+.panel-empty.compact.panel-empty--pdf-hr {
+  margin-top: 0;
+  min-height: 180px;
 }
 
 @keyframes shimmer {
