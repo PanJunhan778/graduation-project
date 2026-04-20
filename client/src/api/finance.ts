@@ -26,8 +26,15 @@ export function getFinanceList(params: {
   category?: string
   startDate?: string
   endDate?: string
+  keyword?: string
 }): Promise<Result<PageResult<FinanceRecordVO>>> {
   return request.get('/finance/list', { params })
+}
+
+export function getFinanceCategories(params: {
+  type?: string
+} = {}): Promise<Result<string[]>> {
+  return request.get('/finance/categories', { params })
 }
 
 export function createFinance(data: FinanceForm): Promise<Result<null>> {

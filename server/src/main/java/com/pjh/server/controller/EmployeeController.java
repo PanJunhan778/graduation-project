@@ -2,6 +2,7 @@ package com.pjh.server.controller;
 
 import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.annotation.SaMode;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.pjh.server.common.Result;
 import com.pjh.server.dto.BatchDeleteDTO;
@@ -35,9 +36,14 @@ public class EmployeeController {
     public Result<IPage<EmployeeVO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String department,
             @RequestParam(required = false) Integer status) {
-        return Result.success(employeeService.listEmployees(page, size, department, status));
+        String normalizedKeyword = StrUtil.trimToNull(keyword);
+        if (normalizedKeyword == null) {
+            normalizedKeyword = StrUtil.trimToNull(department);
+        }
+        return Result.success(employeeService.listEmployees(page, size, normalizedKeyword, status));
     }
 
     @GetMapping("/recycle-bin/list")

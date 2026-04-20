@@ -22,7 +22,7 @@ const EXCEL_MIME_TYPES = [
 export function getEmployeeList(params: {
   page: number
   size: number
-  department?: string
+  keyword?: string
   status?: number
 }): Promise<Result<PageResult<EmployeeRecordVO>>> {
   return request.get('/employee/list', { params })

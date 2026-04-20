@@ -31,7 +31,7 @@ const pageSize = ref(20)
 const selectedRows = ref<EmployeeRecordVO[]>([])
 const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
 
-const filterDepartment = ref('')
+const keyword = ref('')
 const filterStatus = ref<number | undefined>(undefined)
 
 const drawerVisible = ref(false)
@@ -93,8 +93,9 @@ async function fetchList() {
       page: currentPage.value,
       size: pageSize.value,
     }
-    if (filterDepartment.value.trim()) {
-      params.department = filterDepartment.value.trim()
+    const trimmedKeyword = keyword.value.trim()
+    if (trimmedKeyword) {
+      params.keyword = trimmedKeyword
     }
     if (filterStatus.value !== undefined) {
       params.status = filterStatus.value
@@ -392,11 +393,11 @@ onMounted(fetchList)
 
     <div class="filter-bar">
       <el-input
-        v-model="filterDepartment"
-        placeholder="输入所属部门后回车搜索"
+        v-model="keyword"
+        placeholder="搜索姓名、部门、职位或备注"
         clearable
         :prefix-icon="Search"
-        style="width: 240px"
+        style="width: 280px"
         @keyup.enter="handleFilter"
         @clear="handleFilter"
       />

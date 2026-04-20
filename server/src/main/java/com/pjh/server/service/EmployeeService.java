@@ -12,7 +12,7 @@ import java.util.List;
 
 public interface EmployeeService {
 
-    IPage<EmployeeVO> listEmployees(int page, int size, String department, Integer status);
+    IPage<EmployeeVO> listEmployees(int page, int size, String keyword, Integer status);
 
     IPage<EmployeeRecycleBinVO> listRecycleBinEmployees(int page, int size);
 

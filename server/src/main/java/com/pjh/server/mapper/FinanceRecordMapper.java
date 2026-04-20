@@ -55,6 +55,22 @@ public interface FinanceRecordMapper extends BaseMapper<FinanceRecord> {
     Long selectCountByCompanyId(@Param("companyId") Long companyId);
 
     @Select("""
+            <script>
+            SELECT DISTINCT TRIM(category) AS category
+            FROM finance_record
+            WHERE company_id = #{companyId}
+              AND is_deleted = 0
+              AND category IS NOT NULL
+              AND TRIM(category) != ''
+              <if test="type != null and type != ''">
+                AND type = #{type}
+              </if>
+            ORDER BY category ASC
+            </script>
+            """)
+    List<String> selectDistinctCategoriesByCompanyId(@Param("companyId") Long companyId, @Param("type") String type);
+
+    @Select("""
             SELECT id, company_id, type, amount, category, project, date, remark,
                    created_by, created_time, updated_by, updated_time, is_deleted
             FROM finance_record

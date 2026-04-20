@@ -35,10 +35,18 @@ public class TaxController {
     public Result<IPage<TaxRecordVO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String taxType,
+            @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer paymentStatus,
-            @RequestParam(required = false) String taxPeriod) {
-        return Result.success(taxService.listRecords(page, size, taxType, paymentStatus, taxPeriod));
+            @RequestParam(required = false) String taxPeriod,
+            @RequestParam(required = false) String taxType) {
+        String normalizedKeyword = keyword;
+        if (normalizedKeyword == null || normalizedKeyword.isBlank()) {
+            normalizedKeyword = taxPeriod;
+        }
+        if ((normalizedKeyword == null || normalizedKeyword.isBlank()) && taxType != null && !taxType.isBlank()) {
+            normalizedKeyword = taxType;
+        }
+        return Result.success(taxService.listRecords(page, size, normalizedKeyword, paymentStatus));
     }
 
     @GetMapping("/recycle-bin/list")

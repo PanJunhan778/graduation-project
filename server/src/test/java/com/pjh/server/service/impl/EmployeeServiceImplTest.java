@@ -1,6 +1,11 @@
 package com.pjh.server.service.impl;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.toolkit.LambdaUtils;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.DeleteAuditMetadata;
 import com.pjh.server.audit.DeleteAuditMetadataResolver;
@@ -16,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,6 +32,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
@@ -73,6 +80,31 @@ class EmployeeServiceImplTest {
         assertEquals("销售部", captor.getValue().getDepartment());
         assertNull(captor.getValue().getPosition());
         assertNull(captor.getValue().getRemark());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listEmployeesShouldBuildKeywordQueryAcrossMultipleFields() {
+        initEmployeeLambdaCache();
+        when(employeeMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<Employee> page = invocation.getArgument(0);
+            page.setRecords(List.of());
+            page.setTotal(0);
+            return page;
+        });
+
+        employeeService.listEmployees(1, 20, "销售", 1);
+
+        ArgumentCaptor<LambdaQueryWrapper<Employee>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(employeeMapper).selectPage(any(Page.class), captor.capture());
+
+        String sqlSegment = captor.getValue().getSqlSegment();
+        assertTrue(sqlSegment.contains("name"));
+        assertTrue(sqlSegment.contains("department"));
+        assertTrue(sqlSegment.contains("position"));
+        assertTrue(sqlSegment.contains("remark"));
+        assertTrue(sqlSegment.contains("status"));
+        assertEquals(5, captor.getValue().getParamNameValuePairs().size());
     }
 
     @Test
@@ -143,5 +175,11 @@ class EmployeeServiceImplTest {
         user.setRealName(realName);
         user.setUsername(username);
         return user;
+    }
+
+    private void initEmployeeLambdaCache() {
+        LambdaUtils.installCache(
+                TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), Employee.class)
+        );
     }
 }

@@ -1,6 +1,11 @@
 package com.pjh.server.service.impl;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.toolkit.LambdaUtils;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.DeleteAuditMetadata;
 import com.pjh.server.audit.DeleteAuditMetadataResolver;
@@ -11,6 +16,7 @@ import com.pjh.server.entity.User;
 import com.pjh.server.mapper.FinanceRecordMapper;
 import com.pjh.server.util.CurrentSessionService;
 import com.pjh.server.vo.FinanceRecycleBinVO;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -22,10 +28,12 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -122,6 +130,55 @@ class FinanceServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void listRecordsShouldBuildKeywordQueryForProjectAndRemark() {
+        initFinanceLambdaCache();
+        when(financeRecordMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<FinanceRecord> page = invocation.getArgument(0);
+            page.setRecords(List.of());
+            page.setTotal(0);
+            return page;
+        });
+
+        financeService.listRecords(
+                1,
+                20,
+                "income",
+                "销售收入",
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 30),
+                "项目"
+        );
+
+        ArgumentCaptor<LambdaQueryWrapper<FinanceRecord>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(financeRecordMapper).selectPage(any(Page.class), captor.capture());
+
+        String sqlSegment = captor.getValue().getSqlSegment();
+        assertTrue(sqlSegment.contains("type"));
+        assertTrue(sqlSegment.contains("category"));
+        assertTrue(sqlSegment.contains("date"));
+        assertTrue(sqlSegment.contains("project"));
+        assertTrue(sqlSegment.contains("remark"));
+        assertEquals(6, captor.getValue().getParamNameValuePairs().size());
+    }
+
+    @Test
+    void listCategoriesShouldNormalizeDistinctAndSortValuesByType() {
+        when(currentSessionService.requireCurrentCompanyId()).thenReturn(88L);
+        when(financeRecordMapper.selectDistinctCategoriesByCompanyId(88L, "expense")).thenReturn(Arrays.asList(
+                " 办公费用 ",
+                "营销推广",
+                "办公费用",
+                "",
+                null
+        ));
+
+        List<String> categories = financeService.listCategories(" expense ");
+
+        assertIterableEquals(List.of("办公费用", "营销推广"), categories);
+    }
+
+    @Test
     void listRecycleBinRecordsShouldPreferDeleteAuditMetadataAndFallbackToUpdatedFields() {
         FinanceRecord recordWithAudit = financeRecord(1L, "income", 21L, LocalDateTime.of(2026, 4, 10, 8, 0));
         FinanceRecord recordWithFallback = financeRecord(2L, "expense", 22L, LocalDateTime.of(2026, 4, 9, 8, 0));
@@ -196,5 +253,11 @@ class FinanceServiceImplTest {
         user.setRealName(realName);
         user.setUsername(username);
         return user;
+    }
+
+    private void initFinanceLambdaCache() {
+        LambdaUtils.installCache(
+                TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), FinanceRecord.class)
+        );
     }
 }

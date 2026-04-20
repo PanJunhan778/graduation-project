@@ -93,9 +93,10 @@
 
 | 模块层级        | 工具名称 (Tool ID)               | 方法入参 (Parameters)                      | 预期返回数据结构 (Returns)    | 核心职责                                                     |
 | --------------- | -------------------------------- | ------------------------------------------ | ----------------------------- | ------------------------------------------------------------ |
-| **L1 原子查询** | `query_financial_records`        | `startDate`, `endDate`, `type`, `category` | `List<FinanceDTO>` (上限50条) | 查询底层财务明细表                                           |
-|                 | `query_employee_list`            | `department`, `status`                     | `List<EmployeeDTO>`           | 查询花名册                                                   |
-|                 | `query_tax_records`              | `taxPeriod`, `taxType`, `status`           | `List<TaxDTO>`                | 查询税务明细与状态                                           |
+| **L1 原子查询** | `query_financial_records`        | `startDate`, `endDate`, `type`, `category`, `keyword` | `List<FinanceDTO>` (上限50条) | 查询底层财务明细表                                           |
+|                 | `query_financial_categories`     | `type`                                     | `List<String>`                | 返回当前公司真实财务分类筛选项，并按收支类型联动             |
+|                 | `query_employee_list`            | `keyword`, `status`                        | `List<EmployeeDTO>`           | 查询花名册（支持姓名/部门/职位/备注模糊匹配）               |
+|                 | `query_tax_records`              | `keyword`, `status`                        | `List<TaxDTO>`                | 查询税务明细与状态（支持所属期/税种/申报类型/备注模糊匹配） |
 |                 | `query_audit_logs`               | `module`, `startDate`, `endDate`           | `List<AuditLogDTO>`           | 查询操作溯源日志                                             |
 | **L2 聚合计算** | `calculate_financial_sum`        | `startDate`, `endDate`, `type`, `groupBy`  | `Map<String, BigDecimal>`     | 按条件分组求和 (如按分类统计支出)                            |
 |                 | `calculate_tax_sum`              | `startPeriod`, `endPeriod`, `status`       | `BigDecimal`                  | 求和指定周期内的总税额                                       |

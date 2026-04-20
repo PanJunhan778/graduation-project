@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/finance")
@@ -41,8 +42,14 @@ public class FinanceController {
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
-            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate) {
-        return Result.success(financeService.listRecords(page, size, type, category, startDate, endDate));
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
+            @RequestParam(required = false) String keyword) {
+        return Result.success(financeService.listRecords(page, size, type, category, startDate, endDate, keyword));
+    }
+
+    @GetMapping("/categories")
+    public Result<List<String>> listCategories(@RequestParam(required = false) String type) {
+        return Result.success(financeService.listCategories(type));
     }
 
     @GetMapping("/recycle-bin/list")

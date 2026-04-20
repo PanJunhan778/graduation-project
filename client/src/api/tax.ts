@@ -15,9 +15,8 @@ const EXCEL_MIME_TYPES = [
 export function getTaxList(params: {
   page: number
   size: number
-  taxType?: string
+  keyword?: string
   paymentStatus?: number
-  taxPeriod?: string
 }): Promise<Result<PageResult<TaxRecordVO>>> {
   return request.get('/tax/list', { params })
 }

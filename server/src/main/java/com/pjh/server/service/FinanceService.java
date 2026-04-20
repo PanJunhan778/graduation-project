@@ -14,7 +14,9 @@ import java.util.List;
 public interface FinanceService {
 
     IPage<FinanceRecordVO> listRecords(int page, int size, String type, String category,
-                                       LocalDate startDate, LocalDate endDate);
+                                       LocalDate startDate, LocalDate endDate, String keyword);
+
+    List<String> listCategories(String type);
 
     IPage<FinanceRecycleBinVO> listRecycleBinRecords(int page, int size);
 

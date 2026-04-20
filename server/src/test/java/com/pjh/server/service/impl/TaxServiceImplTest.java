@@ -1,5 +1,10 @@
 package com.pjh.server.service.impl;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.toolkit.LambdaUtils;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.pjh.server.audit.AuditOperationService;
 import com.pjh.server.audit.DeleteAuditMetadataResolver;
 import com.pjh.server.dashboard.HomeAiSummarySnapshotInvalidationPublisher;
@@ -8,6 +13,7 @@ import com.pjh.server.entity.TaxRecord;
 import com.pjh.server.exception.BusinessException;
 import com.pjh.server.mapper.TaxRecordMapper;
 import com.pjh.server.util.CurrentSessionService;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +29,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
@@ -146,6 +153,31 @@ class TaxServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void listRecordsShouldBuildKeywordQueryAcrossMultipleFieldsAndStatus() {
+        initTaxLambdaCache();
+        when(taxRecordMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class))).thenAnswer(invocation -> {
+            Page<TaxRecord> page = invocation.getArgument(0);
+            page.setRecords(List.of());
+            page.setTotal(0);
+            return page;
+        });
+
+        taxService.listRecords(1, 20, "企业", 1);
+
+        ArgumentCaptor<LambdaQueryWrapper<TaxRecord>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(taxRecordMapper).selectPage(any(Page.class), captor.capture());
+
+        String sqlSegment = captor.getValue().getSqlSegment();
+        assertTrue(sqlSegment.contains("tax_period"));
+        assertTrue(sqlSegment.contains("tax_type"));
+        assertTrue(sqlSegment.contains("declaration_type"));
+        assertTrue(sqlSegment.contains("remark"));
+        assertTrue(sqlSegment.contains("payment_status"));
+        assertEquals(5, captor.getValue().getParamNameValuePairs().size());
+    }
+
+    @Test
     void batchRestoreShouldRestoreOnlyMatchedDeletedRecords() {
         TaxRecord first = taxRecord(8L, LocalDateTime.of(2026, 4, 10, 9, 0));
         TaxRecord second = taxRecord(9L, LocalDateTime.of(2026, 4, 11, 9, 0));
@@ -187,5 +219,11 @@ class TaxServiceImplTest {
         record.setUpdatedTime(updatedTime);
         record.setCreatedTime(updatedTime.minusDays(3));
         return record;
+    }
+
+    private void initTaxLambdaCache() {
+        LambdaUtils.installCache(
+                TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), TaxRecord.class)
+        );
     }
 }

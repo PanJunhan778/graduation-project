@@ -67,18 +67,38 @@ public class FinanceServiceImpl implements FinanceService {
             String type,
             String category,
             LocalDate startDate,
-            LocalDate endDate
+            LocalDate endDate,
+            String keyword
     ) {
+        String normalizedType = trimToNull(type);
+        String normalizedCategory = trimToNull(category);
+        String normalizedKeyword = trimToNull(keyword);
+
         LambdaQueryWrapper<FinanceRecord> wrapper = new LambdaQueryWrapper<FinanceRecord>()
-                .eq(StrUtil.isNotBlank(type), FinanceRecord::getType, type)
-                .eq(StrUtil.isNotBlank(category), FinanceRecord::getCategory, category)
+                .eq(StrUtil.isNotBlank(normalizedType), FinanceRecord::getType, normalizedType)
+                .eq(StrUtil.isNotBlank(normalizedCategory), FinanceRecord::getCategory, normalizedCategory)
                 .ge(startDate != null, FinanceRecord::getDate, startDate)
                 .le(endDate != null, FinanceRecord::getDate, endDate)
+                .and(StrUtil.isNotBlank(normalizedKeyword), query -> query
+                        .like(FinanceRecord::getProject, normalizedKeyword)
+                        .or()
+                        .like(FinanceRecord::getRemark, normalizedKeyword))
                 .orderByDesc(FinanceRecord::getDate)
                 .orderByDesc(FinanceRecord::getId);
 
         IPage<FinanceRecord> recordPage = financeRecordMapper.selectPage(new Page<>(page, size), wrapper);
         return recordPage.convert(this::toVO);
+    }
+
+    @Override
+    public List<String> listCategories(String type) {
+        Long companyId = currentSessionService.requireCurrentCompanyId();
+        return financeRecordMapper.selectDistinctCategoriesByCompanyId(companyId, trimToNull(type)).stream()
+                .map(this::trimToNull)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     @Override

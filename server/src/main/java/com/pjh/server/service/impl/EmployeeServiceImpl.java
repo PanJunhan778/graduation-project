@@ -58,9 +58,17 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final CurrentSessionService currentSessionService;
 
     @Override
-    public IPage<EmployeeVO> listEmployees(int page, int size, String department, Integer status) {
+    public IPage<EmployeeVO> listEmployees(int page, int size, String keyword, Integer status) {
+        String trimmedKeyword = StrUtil.trimToNull(keyword);
         LambdaQueryWrapper<Employee> wrapper = new LambdaQueryWrapper<Employee>()
-                .eq(StrUtil.isNotBlank(department), Employee::getDepartment, department)
+                .and(trimmedKeyword != null, query -> query
+                        .like(Employee::getName, trimmedKeyword)
+                        .or()
+                        .like(Employee::getDepartment, trimmedKeyword)
+                        .or()
+                        .like(Employee::getPosition, trimmedKeyword)
+                        .or()
+                        .like(Employee::getRemark, trimmedKeyword))
                 .eq(status != null, Employee::getStatus, status)
                 .orderByDesc(Employee::getHireDate)
                 .orderByDesc(Employee::getId);

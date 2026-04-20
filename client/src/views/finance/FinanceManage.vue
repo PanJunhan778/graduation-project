@@ -1,11 +1,12 @@
 ﻿<script setup lang="ts">
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
-import { Plus, Upload, Delete, Edit, Warning, Loading, RefreshLeft } from '@element-plus/icons-vue'
+import { Plus, Upload, Delete, Edit, Warning, Loading, RefreshLeft, Search } from '@element-plus/icons-vue'
 import FinanceOnboardingGuide from '@/components/common/FinanceOnboardingGuide.vue'
 import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
 import RecycleBinDrawer from '@/components/common/RecycleBinDrawer.vue'
 import { useDelayedLoading } from '@/composables/useDelayedLoading'
 import {
+  getFinanceCategories,
   getFinanceList,
   getFinanceRecycleBinList,
   createFinance,
@@ -49,8 +50,10 @@ const staffGuideBootstrapped = ref(false)
 const filterType = ref('')
 const filterCategory = ref('')
 const filterDateRange = ref<[string, string] | null>(null)
+const filterKeyword = ref('')
+const filterCategoryOptions = ref<string[]>([])
 
-const categoryOptions = [
+const presetCategoryOptions = [
   '销售收入', '服务收入', '投资收益', '其他收入',
   '采购支出', '人工成本', '房租水电', '营销推广', '办公费用', '差旅费用', '税费支出', '其他支出',
 ]
@@ -79,7 +82,7 @@ const staffGuideSteps = computed(() => [
   },
   {
     title: '筛选和查询都在这里完成',
-    description: '可以按收支类型、财务分类和日期范围快速筛选，方便你只查看当前要处理的数据。',
+    description: '可以按收支类型、财务分类、日期范围和关键词快速筛选，方便你只查看当前要处理的数据。',
     target: filterBarRef.value,
     placement: 'bottom' as const,
     width: 380,
@@ -106,12 +109,14 @@ async function fetchList() {
       page: currentPage.value,
       size: pageSize.value,
     }
+    const trimmedKeyword = filterKeyword.value.trim()
     if (filterType.value) params.type = filterType.value
     if (filterCategory.value) params.category = filterCategory.value
     if (filterDateRange.value) {
       params.startDate = filterDateRange.value[0]
       params.endDate = filterDateRange.value[1]
     }
+    if (trimmedKeyword) params.keyword = trimmedKeyword
     const res = await getFinanceList(params as Parameters<typeof getFinanceList>[0])
     tableData.value = res.data.records
     total.value = res.data.total
@@ -126,9 +131,38 @@ async function fetchList() {
   }
 }
 
+async function fetchCategoryOptions(showError = true) {
+  try {
+    const res = await getFinanceCategories({
+      type: filterType.value || undefined,
+    })
+    filterCategoryOptions.value = res.data
+    return res.data
+  } catch (err: unknown) {
+    if (showError) {
+      const error = err as { message?: string }
+      ElMessage.error(error?.message || '财务分类加载失败')
+    }
+    return null
+  }
+}
+
+async function refreshCategoryOptionsAndList(showCategoryError = true) {
+  const categories = await fetchCategoryOptions(showCategoryError)
+  if (categories && filterCategory.value && !categories.includes(filterCategory.value)) {
+    filterCategory.value = ''
+  }
+  await fetchList()
+}
+
 function handleFilter() {
   currentPage.value = 1
-  fetchList()
+  void fetchList()
+}
+
+async function handleTypeChange() {
+  currentPage.value = 1
+  await refreshCategoryOptionsAndList()
 }
 
 function handlePageChange(page: number) {
@@ -267,7 +301,7 @@ async function submitDrawer() {
       ElMessage.success('记录创建成功')
     }
     drawerVisible.value = false
-    fetchList()
+    await refreshCategoryOptionsAndList()
   } finally {
     drawerSubmitting.value = false
   }
@@ -283,7 +317,7 @@ async function handleDelete(row: FinanceRecordVO) {
     )
     await deleteFinance(row.id)
     ElMessage.success('删除成功')
-    fetchList()
+    await refreshCategoryOptionsAndList()
   } catch {
     // cancelled
   }
@@ -305,7 +339,7 @@ async function handleBatchDelete() {
     await batchDeleteFinance(ids)
     ElMessage.success('批量删除成功')
     selectedRows.value = []
-    fetchList()
+    await refreshCategoryOptionsAndList()
   } catch {
     // cancelled
   }
@@ -320,7 +354,7 @@ async function handleRestoreFromRecycleBin(row: FinanceRecycleBinVO) {
     )
     await restoreFinance(row.id)
     recycleBinSelectedRows.value = []
-    await Promise.all([fetchRecycleBinList(), fetchList()])
+    await Promise.all([fetchRecycleBinList(), refreshCategoryOptionsAndList()])
     ElMessage.success('恢复成功')
   } catch {
     // cancelled
@@ -338,7 +372,7 @@ async function handleBatchRestoreFromRecycleBin() {
     const ids = recycleBinSelectedRows.value.map((item) => item.id)
     const res = await batchRestoreFinance(ids)
     recycleBinSelectedRows.value = []
-    await Promise.all([fetchRecycleBinList(), fetchList()])
+    await Promise.all([fetchRecycleBinList(), refreshCategoryOptionsAndList()])
     ElMessage.success(`已恢复 ${res.data || ids.length} 条记录`)
   } catch {
     // cancelled
@@ -389,7 +423,7 @@ async function handleImportUpload(options: { file: File }) {
     await importFinanceExcel(options.file)
     ElMessage.success('导入成功')
     importDialogVisible.value = false
-    fetchList()
+    await refreshCategoryOptionsAndList()
   } catch (err: unknown) {
     const error = err as { code?: number; message?: string; data?: ImportError[] }
     if (error?.data && Array.isArray(error.data)) {
@@ -430,7 +464,14 @@ function dismissStaffGuide() {
   staffGuideVisible.value = false
 }
 
-onMounted(fetchList)
+async function initializePage() {
+  await fetchCategoryOptions(false)
+  await fetchList()
+}
+
+onMounted(() => {
+  void initializePage()
+})
 </script>
 
 <template>
@@ -438,7 +479,7 @@ onMounted(fetchList)
     v-if="showInitialSkeleton"
     title="财务账本"
     :action-count="userStore.isOwner ? 3 : 2"
-    :filter-count="3"
+    :filter-count="5"
     :row-count="8"
   />
   <div v-else class="finance-manage">
@@ -473,7 +514,7 @@ onMounted(fetchList)
         placeholder="收支类型"
         clearable
         style="width: 140px"
-        @change="handleFilter"
+        @change="handleTypeChange"
       >
         <el-option label="收入" value="income" />
         <el-option label="支出" value="expense" />
@@ -486,7 +527,7 @@ onMounted(fetchList)
         style="width: 180px"
         @change="handleFilter"
       >
-        <el-option v-for="cat in categoryOptions" :key="cat" :label="cat" :value="cat" />
+        <el-option v-for="cat in filterCategoryOptions" :key="cat" :label="cat" :value="cat" />
       </el-select>
       <el-date-picker
         v-model="filterDateRange"
@@ -498,6 +539,16 @@ onMounted(fetchList)
         style="width: 280px"
         @change="handleFilter"
       />
+      <el-input
+        v-model="filterKeyword"
+        placeholder="搜索关联项目或备注"
+        clearable
+        :prefix-icon="Search"
+        style="width: 240px"
+        @keyup.enter="handleFilter"
+        @clear="handleFilter"
+      />
+      <el-button :icon="Search" @click="handleFilter">搜索</el-button>
     </div>
 
     <!-- 数据表格 -->
@@ -611,7 +662,7 @@ onMounted(fetchList)
             allow-create
             style="width: 100%"
           >
-            <el-option v-for="cat in categoryOptions" :key="cat" :label="cat" :value="cat" />
+            <el-option v-for="cat in presetCategoryOptions" :key="cat" :label="cat" :value="cat" />
           </el-select>
         </el-form-item>
 

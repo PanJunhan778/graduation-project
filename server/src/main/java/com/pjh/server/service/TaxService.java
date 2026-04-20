@@ -12,7 +12,7 @@ import java.util.List;
 
 public interface TaxService {
 
-    IPage<TaxRecordVO> listRecords(int page, int size, String taxType, Integer paymentStatus, String taxPeriod);
+    IPage<TaxRecordVO> listRecords(int page, int size, String keyword, Integer paymentStatus);
 
     IPage<TaxRecycleBinVO> listRecycleBinRecords(int page, int size);
 

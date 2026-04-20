@@ -52,14 +52,19 @@ public class TaxServiceImpl implements TaxService {
     private final CurrentSessionService currentSessionService;
 
     @Override
-    public IPage<TaxRecordVO> listRecords(int page, int size, String taxType, Integer paymentStatus, String taxPeriod) {
-        String normalizedTaxType = trimToNull(taxType);
-        String normalizedTaxPeriod = trimToNull(taxPeriod);
+    public IPage<TaxRecordVO> listRecords(int page, int size, String keyword, Integer paymentStatus) {
+        String normalizedKeyword = trimToNull(keyword);
 
         LambdaQueryWrapper<TaxRecord> wrapper = new LambdaQueryWrapper<TaxRecord>()
-                .like(StrUtil.isNotBlank(normalizedTaxType), TaxRecord::getTaxType, normalizedTaxType)
+                .and(StrUtil.isNotBlank(normalizedKeyword), query -> query
+                        .like(TaxRecord::getTaxPeriod, normalizedKeyword)
+                        .or()
+                        .like(TaxRecord::getTaxType, normalizedKeyword)
+                        .or()
+                        .like(TaxRecord::getDeclarationType, normalizedKeyword)
+                        .or()
+                        .like(TaxRecord::getRemark, normalizedKeyword))
                 .eq(paymentStatus != null, TaxRecord::getPaymentStatus, paymentStatus)
-                .likeRight(StrUtil.isNotBlank(normalizedTaxPeriod), TaxRecord::getTaxPeriod, normalizedTaxPeriod)
                 .orderByDesc(TaxRecord::getUpdatedTime)
                 .orderByDesc(TaxRecord::getId);
 

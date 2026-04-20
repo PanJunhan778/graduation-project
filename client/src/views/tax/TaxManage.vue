@@ -32,8 +32,7 @@ const selectedRows = ref<TaxRecordVO[]>([])
 const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
 
 const filterPaymentStatus = ref<TaxPaymentStatus | undefined>(undefined)
-const filterTaxPeriod = ref('')
-const filterTaxType = ref('')
+const keyword = ref('')
 
 const recycleBinVisible = ref(false)
 const recycleBinLoading = ref(false)
@@ -129,14 +128,12 @@ async function fetchList() {
       page: currentPage.value,
       size: pageSize.value,
     }
+    const trimmedKeyword = keyword.value.trim()
     if (filterPaymentStatus.value !== undefined) {
       params.paymentStatus = filterPaymentStatus.value
     }
-    if (filterTaxPeriod.value.trim()) {
-      params.taxPeriod = filterTaxPeriod.value.trim()
-    }
-    if (filterTaxType.value.trim()) {
-      params.taxType = filterTaxType.value.trim()
+    if (trimmedKeyword) {
+      params.keyword = trimmedKeyword
     }
     const res = await getTaxList(params as Parameters<typeof getTaxList>[0])
     tableData.value = res.data.records
@@ -433,7 +430,7 @@ onMounted(fetchList)
     v-if="showInitialSkeleton"
     title="税务档案"
     :action-count="userStore.isOwner ? 4 : 3"
-    :filter-count="3"
+    :filter-count="2"
     :row-count="8"
   />
   <div v-else class="tax-manage">
@@ -473,20 +470,11 @@ onMounted(fetchList)
         <el-option label="免征/零申报" :value="2" />
       </el-select>
       <el-input
-        v-model="filterTaxPeriod"
-        placeholder="税款所属期，如 2026-Q1"
+        v-model="keyword"
+        placeholder="搜索税款所属期、税种、申报类型或备注"
         clearable
         :prefix-icon="Search"
-        style="width: 220px"
-        @keyup.enter="handleFilter"
-        @clear="handleFilter"
-      />
-      <el-input
-        v-model="filterTaxType"
-        placeholder="税种关键字"
-        clearable
-        :prefix-icon="Search"
-        style="width: 220px"
+        style="width: 320px"
         @keyup.enter="handleFilter"
         @clear="handleFilter"
       />
