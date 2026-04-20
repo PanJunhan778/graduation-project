@@ -27,6 +27,7 @@ export const useUserStore = defineStore('user', () => {
   const staffFinanceGuideSeenSessionId = ref<string>(getStaffFinanceGuideSeenSessionId() || '')
 
   const isLoggedIn = computed(() => !!token.value)
+  const isOwner = computed(() => role.value === 'owner')
 
   function createSessionId() {
     return `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
@@ -169,6 +170,7 @@ export const useUserStore = defineStore('user', () => {
     loginSessionId,
     staffFinanceGuideSeenSessionId,
     isLoggedIn,
+    isOwner,
     setUserState,
     patchDisplayProfile,
     login,

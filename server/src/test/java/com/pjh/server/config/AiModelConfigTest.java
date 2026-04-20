@@ -7,6 +7,10 @@ import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AiModelConfigTest {
@@ -40,7 +44,14 @@ class AiModelConfigTest {
         properties.setModel("qwen3.5-flash");
 
         Tokenizer tokenizer = aiModelConfig.resolveTokenizer(properties);
-        AiToolFacade toolFacade = new AiToolFacade(null, null, null, null, new ObjectMapper());
+        AiToolFacade toolFacade = new AiToolFacade(
+                null,
+                null,
+                null,
+                null,
+                new ObjectMapper(),
+                Clock.fixed(Instant.parse("2026-04-20T06:23:45Z"), ZoneId.of("Asia/Shanghai"))
+        );
 
         assertThat(tokenizer.estimateTokenCountInToolSpecifications(toolFacade.toolSpecifications())).isPositive();
     }

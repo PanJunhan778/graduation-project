@@ -16,10 +16,12 @@ import {
   restoreTax,
   updateTax,
 } from '@/api/tax'
+import { useUserStore } from '@/store/user'
 import { downloadImportErrorReport } from '@/utils/excel'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { ImportError, TaxForm, TaxPaymentStatus, TaxRecordVO, TaxRecycleBinVO } from '@/types'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const hasLoaded = ref(false)
 const tableData = ref<TaxRecordVO[]>([])
@@ -430,7 +432,7 @@ onMounted(fetchList)
   <PageTableSkeleton
     v-if="showInitialSkeleton"
     title="税务档案"
-    :action-count="4"
+    :action-count="userStore.isOwner ? 4 : 3"
     :filter-count="3"
     :row-count="8"
   />
@@ -443,7 +445,7 @@ onMounted(fetchList)
       <div class="action-left">
         <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
         <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>
-        <el-button :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
+        <el-button v-if="userStore.isOwner" :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
         <a class="template-link" @click="handleTemplateDownload">下载导入模板</a>
       </div>
       <div class="action-right">
@@ -701,6 +703,7 @@ onMounted(fetchList)
     </el-dialog>
 
     <RecycleBinDrawer
+      v-if="userStore.isOwner"
       v-model="recycleBinVisible"
       title="税务回收站"
       :data="recycleBinTableData"

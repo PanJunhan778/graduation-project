@@ -6,16 +6,21 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AiPromptBuilderTest {
 
-    private final AiPromptBuilder aiPromptBuilder = new AiPromptBuilder();
+    private final AiPromptBuilder aiPromptBuilder = new AiPromptBuilder(
+            Clock.fixed(Instant.parse("2026-04-20T06:23:45Z"), ZoneId.of("Asia/Shanghai"))
+    );
 
     @Test
-    void buildSystemPromptShouldContainCompanyProfileAndTaxpayerType() {
+    void buildSystemPromptShouldContainCompanyProfileTaxpayerTypeAndCurrentTimeAnchor() {
         Company company = new Company();
         company.setDescription("主营国内电商与跨境订阅服务");
         company.setTaxpayerType("一般纳税人");
@@ -25,6 +30,13 @@ class AiPromptBuilderTest {
         assertThat(prompt).contains("主营国内电商与跨境订阅服务");
         assertThat(prompt).contains("一般纳税人");
         assertThat(prompt).contains("Only the owner can use this assistant");
+        assertThat(prompt).contains("2026-04-20");
+        assertThat(prompt).contains("2026-04-20 14:23:45");
+        assertThat(prompt).contains("Asia/Shanghai");
+        assertThat(prompt).contains("2026-04");
+        assertThat(prompt).contains("2026-Q2");
+        assertThat(prompt).contains("get_current_datetime");
+        assertThat(prompt).contains("Never infer today's date or the current time from business data");
         assertThat(prompt).contains("💡 数据来源：底层财务/税务明细报表");
     }
 

@@ -21,8 +21,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -48,6 +51,7 @@ public class AiToolFacade {
     private final TaxRecordMapper taxRecordMapper;
     private final AuditLogMapper auditLogMapper;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
 
     public List<ToolSpecification> toolSpecifications() {
         return List.of(
@@ -75,6 +79,8 @@ public class AiToolFacade {
                                 "startDate", stringProperty("Start date in yyyy-MM-dd"),
                                 "endDate", stringProperty("End date in yyyy-MM-dd")
                         )),
+                tool("get_current_datetime", "Get the current backend date/time and current-period boundaries. Use this before answering questions about today, now, this month, this quarter, or this year.",
+                        Map.of()),
                 tool("calculate_financial_sum", "Calculate authoritative finance totals for the current company in Java. Return grandTotal, recordCount, minDate, maxDate, and groupedTotals. Always use this first for year/month/date-range income-expense summaries.",
                         Map.of(
                                 "startDate", stringProperty("Start date in yyyy-MM-dd"),
@@ -109,6 +115,7 @@ public class AiToolFacade {
             case "query_employee_list" -> AiToolExecutionOutcome.result(queryEmployeeList(companyId, arguments));
             case "query_tax_records" -> AiToolExecutionOutcome.result(queryTaxRecords(companyId, arguments));
             case "query_audit_logs" -> AiToolExecutionOutcome.result(queryAuditLogs(companyId, arguments));
+            case "get_current_datetime" -> AiToolExecutionOutcome.result(getCurrentDateTime());
             case "calculate_financial_sum" -> AiToolExecutionOutcome.result(calculateFinancialSum(companyId, arguments));
             case "calculate_tax_sum" -> AiToolExecutionOutcome.result(calculateTaxSum(companyId, arguments));
             case "get_business_snapshot" -> AiToolExecutionOutcome.result(getBusinessSnapshot(companyId, arguments));
@@ -235,6 +242,32 @@ public class AiToolFacade {
                 .toList();
 
         return writeJson(Map.of("records", logs, "count", logs.size()));
+    }
+
+    private String getCurrentDateTime() {
+        LocalDateTime now = LocalDateTime.now(clock).withNano(0);
+        LocalDate currentDate = now.toLocalDate();
+        LocalDate monthStartDate = currentDate.withDayOfMonth(1);
+        LocalDate monthEndDate = currentDate.withDayOfMonth(currentDate.lengthOfMonth());
+        LocalDate quarterStartDate = resolveQuarterStart(currentDate);
+        LocalDate quarterEndDate = quarterStartDate.plusMonths(2).withDayOfMonth(quarterStartDate.plusMonths(2).lengthOfMonth());
+        LocalDate yearStartDate = currentDate.withDayOfYear(1);
+        LocalDate yearEndDate = currentDate.withDayOfYear(currentDate.lengthOfYear());
+        int currentQuarter = resolveQuarter(currentDate);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("currentDate", currentDate.toString());
+        result.put("currentDateTime", now.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        result.put("timezone", clock.getZone().getId());
+        result.put("currentYearMonth", YearMonth.from(currentDate).toString());
+        result.put("currentQuarter", currentDate.getYear() + "-Q" + currentQuarter);
+        result.put("monthStartDate", monthStartDate.toString());
+        result.put("monthEndDate", monthEndDate.toString());
+        result.put("quarterStartDate", quarterStartDate.toString());
+        result.put("quarterEndDate", quarterEndDate.toString());
+        result.put("yearStartDate", yearStartDate.toString());
+        result.put("yearEndDate", yearEndDate.toString());
+        return writeJson(result);
     }
 
     private String calculateFinancialSum(Long companyId, JsonNode arguments) {
@@ -460,6 +493,16 @@ public class AiToolFacade {
         } catch (DateTimeParseException e) {
             throw new BusinessException("yearMonth 必须为 yyyy-MM");
         }
+    }
+
+    private int resolveQuarter(LocalDate currentDate) {
+        return (currentDate.getMonthValue() - 1) / 3 + 1;
+    }
+
+    private LocalDate resolveQuarterStart(LocalDate currentDate) {
+        int currentQuarter = resolveQuarter(currentDate);
+        int startMonth = (currentQuarter - 1) * 3 + 1;
+        return LocalDate.of(currentDate.getYear(), startMonth, 1);
     }
 
     private boolean taxPeriodMatchesMonth(String taxPeriod, YearMonth targetMonth) {

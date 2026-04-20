@@ -169,6 +169,75 @@ class AiServiceImplTest {
     }
 
     @Test
+    void chatStreamShouldSupportCurrentDatetimeToolBeforeFinancialSummary() {
+        stubCommonChatFlow();
+
+        ToolExecutionRequest currentDateTimeRequest = ToolExecutionRequest.builder()
+                .id("tool-now")
+                .name("get_current_datetime")
+                .arguments("{}")
+                .build();
+        ToolExecutionRequest financialSummaryRequest = ToolExecutionRequest.builder()
+                .id("tool-sum")
+                .name("calculate_financial_sum")
+                .arguments("{\"startDate\":\"2026-04-01\",\"endDate\":\"2026-04-20\",\"type\":\"expense\"}")
+                .build();
+
+        AtomicInteger round = new AtomicInteger();
+        doAnswer(invocation -> {
+            StreamingResponseHandler<AiMessage> handler = invocation.getArgument(2);
+            int currentRound = round.getAndIncrement();
+            if (currentRound == 0) {
+                handler.onComplete(Response.from(AiMessage.from(List.of(currentDateTimeRequest))));
+            } else if (currentRound == 1) {
+                handler.onComplete(Response.from(AiMessage.from(List.of(financialSummaryRequest))));
+            } else {
+                handler.onNext("ok");
+                handler.onComplete(Response.from(AiMessage.from("本月按 2026-04-20 理解，当前仅统计到 2026-04-13。")));
+            }
+            return null;
+        }).when(streamingChatModel).generate(any(List.class), any(List.class), any(StreamingResponseHandler.class));
+
+        when(aiToolFacade.execute(9L, currentDateTimeRequest)).thenReturn(AiToolExecutionOutcome.result("""
+                {"currentDate":"2026-04-20","currentDateTime":"2026-04-20T14:23:45","timezone":"Asia/Shanghai","monthStartDate":"2026-04-01","quarterStartDate":"2026-04-01","yearStartDate":"2026-01-01"}
+                """.trim()));
+        when(aiToolFacade.execute(9L, financialSummaryRequest)).thenReturn(AiToolExecutionOutcome.result("""
+                {"recordCount":3,"maxDate":"2026-04-13","grandTotal":123.45}
+                """.trim()));
+
+        AiChatLog assistantLog = new AiChatLog();
+        assistantLog.setId(103L);
+        when(aiHistoryService.createMessage(
+                9L,
+                7L,
+                "session-1",
+                "assistant",
+                AiConstants.MESSAGE_TYPE_MARKDOWN,
+                "本月按 2026-04-20 理解，当前仅统计到 2026-04-13。",
+                null
+        )).thenReturn(assistantLog);
+
+        RecordingObserver observer = new RecordingObserver();
+        aiService.chatStream(9L, 7L, buildRequest(), observer);
+
+        assertThat(observer.events).containsExactly("start", "token:ok", "done:message");
+        assertThat(observer.donePayload).isEqualTo(
+                AiChatStreamDoneVO.message("session-1", 103L, AiConstants.MESSAGE_TYPE_MARKDOWN)
+        );
+        verify(aiToolFacade).execute(9L, currentDateTimeRequest);
+        verify(aiToolFacade).execute(9L, financialSummaryRequest);
+        verify(aiHistoryService).createMessage(
+                9L,
+                7L,
+                "session-1",
+                "assistant",
+                AiConstants.MESSAGE_TYPE_MARKDOWN,
+                "本月按 2026-04-20 理解，当前仅统计到 2026-04-13。",
+                null
+        );
+    }
+
+    @Test
     void chatStreamShouldEmitActionRequiredWithoutPersistingAssistantMessage() {
         stubCommonChatFlow();
 

@@ -42,6 +42,7 @@ public class TaxController {
     }
 
     @GetMapping("/recycle-bin/list")
+    @SaCheckRole("owner")
     public Result<IPage<TaxRecycleBinVO>> listRecycleBin(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -73,12 +74,14 @@ public class TaxController {
     }
 
     @PostMapping("/recycle-bin/{id}/restore")
+    @SaCheckRole("owner")
     public Result<Void> restore(@PathVariable Long id) {
         taxService.restoreRecord(id);
         return Result.success("税务记录恢复成功", null);
     }
 
     @PostMapping("/recycle-bin/batch-restore")
+    @SaCheckRole("owner")
     public Result<Integer> batchRestore(@RequestBody @Valid BatchDeleteDTO dto) {
         int restoredCount = taxService.batchRestore(dto.getIds());
         return Result.success("批量恢复成功", restoredCount);

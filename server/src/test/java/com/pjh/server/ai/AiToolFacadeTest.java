@@ -19,6 +19,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -42,17 +45,12 @@ class AiToolFacadeTest {
     private AuditLogMapper auditLogMapper;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Clock fixedClock = Clock.fixed(Instant.parse("2026-04-20T06:23:45Z"), ZoneId.of("Asia/Shanghai"));
 
     @Test
     void queryTaxRecordsShouldUsePrefixMatchingForYearInput() throws Exception {
         initializeTableInfo();
-        AiToolFacade aiToolFacade = new AiToolFacade(
-                financeRecordMapper,
-                employeeMapper,
-                taxRecordMapper,
-                auditLogMapper,
-                objectMapper
-        );
+        AiToolFacade aiToolFacade = newAiToolFacade();
         when(taxRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
                 taxRecord(1L, "2023-01", "增值税", "3200.00"),
                 taxRecord(2L, "2023-Q2", "企业所得税", "1800.00"),
@@ -79,13 +77,7 @@ class AiToolFacadeTest {
 
     @Test
     void calculateTaxSumShouldAcceptYearOnlyRangeBoundaries() throws Exception {
-        AiToolFacade aiToolFacade = new AiToolFacade(
-                financeRecordMapper,
-                employeeMapper,
-                taxRecordMapper,
-                auditLogMapper,
-                objectMapper
-        );
+        AiToolFacade aiToolFacade = newAiToolFacade();
         when(taxRecordMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(
                 taxRecord(1L, "2023-01", "增值税", "3200.00"),
                 taxRecord(2L, "2023-Q2", "企业所得税", "1800.00"),
@@ -102,6 +94,42 @@ class AiToolFacadeTest {
 
         JsonNode payload = objectMapper.readTree(outcome.resultJson());
         assertThat(payload.get("total").decimalValue()).isEqualByComparingTo("5260.00");
+    }
+
+    @Test
+    void getCurrentDateTimeShouldReturnCurrentDateAndPeriodBoundaries() throws Exception {
+        AiToolFacade aiToolFacade = newAiToolFacade();
+
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .name("get_current_datetime")
+                .arguments("{}")
+                .build();
+
+        AiToolExecutionOutcome outcome = aiToolFacade.execute(4L, request);
+
+        JsonNode payload = objectMapper.readTree(outcome.resultJson());
+        assertThat(payload.get("currentDate").asText()).isEqualTo("2026-04-20");
+        assertThat(payload.get("currentDateTime").asText()).isEqualTo("2026-04-20T14:23:45");
+        assertThat(payload.get("timezone").asText()).isEqualTo("Asia/Shanghai");
+        assertThat(payload.get("currentYearMonth").asText()).isEqualTo("2026-04");
+        assertThat(payload.get("currentQuarter").asText()).isEqualTo("2026-Q2");
+        assertThat(payload.get("monthStartDate").asText()).isEqualTo("2026-04-01");
+        assertThat(payload.get("monthEndDate").asText()).isEqualTo("2026-04-30");
+        assertThat(payload.get("quarterStartDate").asText()).isEqualTo("2026-04-01");
+        assertThat(payload.get("quarterEndDate").asText()).isEqualTo("2026-06-30");
+        assertThat(payload.get("yearStartDate").asText()).isEqualTo("2026-01-01");
+        assertThat(payload.get("yearEndDate").asText()).isEqualTo("2026-12-31");
+    }
+
+    private AiToolFacade newAiToolFacade() {
+        return new AiToolFacade(
+                financeRecordMapper,
+                employeeMapper,
+                taxRecordMapper,
+                auditLogMapper,
+                objectMapper,
+                fixedClock
+        );
     }
 
     private TaxRecord taxRecord(Long id, String taxPeriod, String taxType, String amount) {

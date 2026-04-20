@@ -46,6 +46,7 @@ public class FinanceController {
     }
 
     @GetMapping("/recycle-bin/list")
+    @SaCheckRole("owner")
     public Result<IPage<FinanceRecycleBinVO>> listRecycleBin(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -77,12 +78,14 @@ public class FinanceController {
     }
 
     @PostMapping("/recycle-bin/{id}/restore")
+    @SaCheckRole("owner")
     public Result<Void> restore(@PathVariable Long id) {
         financeService.restoreRecord(id);
         return Result.success("财务记录恢复成功", null);
     }
 
     @PostMapping("/recycle-bin/batch-restore")
+    @SaCheckRole("owner")
     public Result<Integer> batchRestore(@RequestBody @Valid BatchDeleteDTO dto) {
         int restoredCount = financeService.batchRestore(dto.getIds());
         return Result.success("批量恢复成功", restoredCount);
