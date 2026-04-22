@@ -1,387 +1,755 @@
-# 软件需求规格说明书 (SRS)
+# 智能轻量化企业管理系统软件需求规格说明书（SRS）
 
-**项目名称**：智能轻量化企业管理系统 
+- 文档版本：V3.4
+- 更新日期：2026-04-22
+- 对齐基准：以前后端当前实现代码为唯一事实源
+- 说明：本版 SRS 重点修正文档与代码之间的历史偏差，旧版未落地主体验不再作为当前规范
 
-**版本号**：V3.3 
+## 1. 文档范围
 
-**面向对象**：后端开发工程师、前端开发工程师、测试工程师、系统架构师
+本文档描述当前系统已经实现并可被验证的前后端结构、接口、权限、租户隔离、AI 集成协议、数据模型与配置约束。凡与旧版文档不一致之处，以当前代码实现为准。
 
-**文档日期**：2026-04-09
+## 2. 当前实现概览
 
-## 1. 引言 (Introduction)
+### 2.1 技术栈
 
-### 1.1 编写目的
+前端：
 
-本文档旨在明确“智能轻量化企业管理系统”的业务需求、功能规格及非功能性约束。本文档将作为前后端开发、接口定义及系统测试的唯一标准依据。系统的底层数据库物理模型设计将另行在《系统详细设计说明书 (SDD)》中独立约束。任何偏离本文档的开发行为必须经过需求变更评审。
+1. Vue 3
+2. TypeScript
+3. Vue Router
+4. Pinia
+5. Element Plus
+6. Axios
 
-### 1.2 术语表 (Glossary)
+后端：
 
-| 术语 / 缩写                  | 定义                                                         |
-| ---------------------------- | ------------------------------------------------------------ |
-| **多租户隔离**               | 依靠数据行级标识（`company_id`）实现不同企业客户间数据绝对物理/逻辑隔离的架构。 |
-| **逻辑删除**                 | 软删除。数据不在物理磁盘上抹除，仅通过修改 `is_deleted` 字段标识其失效状态。 |
-| **HITL (Human-in-the-loop)** | 人类在环机制。指系统（特别是 AI）在执行敏感的数据修改操作前，必须挂起流程，等待人类用户的二次确认。 |
-| **AOP 审计**                 | 面向切面编程。在不侵入主业务代码的前提下，通过底层拦截器自动抓取和记录数据变更日志的技术。 |
+1. Spring Boot
+2. MyBatis-Plus
+3. Sa-Token
+4. MySQL
+5. LangChain4j
 
-## 2. 总体约束与技术选型 (Overall Description)
+### 2.2 当前主布局
 
-### 2.1 技术栈基准
+当前主布局由 `MainLayout.vue` 驱动，采用：
 
-- **前端**：Vite + Vue 3 (Composition API) + Element Plus + ECharts。
-- **后端**：Java 21 + Spring Boot 3.x + MyBatis-Plus。
-- **安全认证**：Sa-Token + JWT（严禁引入 Spring Security 避免依赖过重）。
-- **AI 核心库**：LangChain4j。
-- **数据库**：MySQL 8.0.17。
+1. 固定左侧侧栏
+2. 中间页面工作区
+3. 侧栏底部个人入口弹层
 
-### 2.2 运行环境与终端适配
+`Topbar.vue` 与旧版 `ProfileCenterDrawer.vue` 仍保留在代码中，但不属于当前主布局默认交互路径，因此不作为现行体验事实写入本版主流程规范。
 
-- **终端类型**：本期仅支持 PC 端 Web 浏览器（推荐 Chrome 100+ 或 Edge 100+）。
-- **布局约束**：前端 UI 必须基于 Flex 弹性盒或 CSS Grid 实现。严禁硬编码绝对像素宽度，为未来移动端拓展预留空间。
+## 3. 前端路由与角色访问矩阵
 
-### 2.3 全局工程规范
+### 3.1 路由定义
 
-- **金额精度**：所有涉及货币金额的变量、参数、数据流转，必须统一采用高精度类型，在 Java 中强制映射为 `java.math.BigDecimal`，严禁使用浮点型（`Float`/`Double`）。
-- **缓存方案**：HITL `confirm_token` 等短期凭证采用 Caffeine 本地缓存（TTL 5 分钟）。本系统为单机部署架构，无需引入 Redis。
+| 路由 | 页面 | 角色 |
+| --- | --- | --- |
+| `/login` | 登录页 | 公开 |
+| `/register` | 注册页 | 公开 |
+| `/home` | 首页 | `owner` |
+| `/dashboard` | 数据看板 | `owner` |
+| `/ai-chat` | AI 智能助理 | `owner` |
+| `/admin/company` | 租户管理 | `admin` |
+| `/users` | 用户管理 | `owner` |
+| `/finance` | 财务账本 | `owner` / `staff` |
+| `/tax` | 税务档案 | `owner` / `staff` |
+| `/employee` | 员工名册 | `owner` / `staff` |
+| `/audit` | 审计日志 | `owner` |
 
-## 3. 系统核心功能规格 (Functional Requirements)
+### 3.2 默认跳转规则
 
-### 3.1 权限与租户隔离模块
+1. `admin` 登录后默认进入 `/admin/company`
+2. `owner` 登录后默认进入 `/home`
+3. `staff` 登录后默认进入 `/finance`
 
-- **FR-3.1.1 租户鉴权**：系统无状态登录，后端基于 JWT 生成 Token。Token 载荷（Payload）中必须明文包含 `user_id`、`role` 与 `company_id`。
-- **FR-3.1.2 隐式租户路由**：前端所有受保护的 Axios 请求必须在 Header 携带 `Authorization: Bearer <token>`。后端严禁通过 Request Body 或 Params 接收 `company_id`，必须由 Sa-Token 拦截器从 Token 中解析 `company_id`，并通过 MyBatis-Plus 的 `TenantLineInnerInterceptor` 隐式拼接至底层 SQL 的 `WHERE` 条件中。
+### 3.3 当前侧栏菜单规则
 
-**【验收标准 (Acceptance Criteria)】**
+1. `admin` 仅显示“租户管理”
+2. `owner` 显示首页、数据看板、财务账本、税务档案、员工名册、审计日志、用户管理、AI 智能助理
+3. `staff` 仅显示财务账本、税务档案、员工名册
 
-- **AC-3.1.1 (Token 安全载荷)**：测试工具解码返回的 JWT Token，能精准读取 `user_id` 和 `company_id`，且不可包含 password 等敏感字段。
-- **AC-3.1.2 (防越权访问拦截)**：使用 A 公司的合法 Token，强行调用接口试图修改或查询 B 公司的 target_id 数据时，系统必须拦截并返回 403 / 404 / 列表为空；审查底层执行的 SQL，其 WHERE 语句中必须自动且强制包含 `company_id = A公司ID`。
+## 4. 认证、会话与租户隔离
 
-### 3.2 财务与人事核心录入模块
+### 4.1 认证方式
 
-- **FR-3.2.1 财务明细管理**：支持单笔收支录入，必填项：收支类型、金额（>0）、分类、发生日期。
-- **FR-3.2.2 税务记录管理**：支持按期录入已确认的税务支出。**约束**：系统不内置任何国家法定税率计算逻辑，全量依赖人工录入实际缴税结果。必填项：所属期（需正则校验格式如 `YYYY-MM` 或 `YYYY-Qx`）、税种、纳税状态、税额（允许录入负数代表退税）。
-- **FR-3.2.3 批量数据导入与容错**：支持基于标准化 Excel 模板（Hutool-poi 解析）导入历史财务/人事数据。
-  - **异常处理规约**：执行强校验，若遇非法格式，接口返回 HTTP 200，但业务状态码标记失败，`data` 数组返回具体报错明细（例：`[{"row": 5, "error": "金额必须大于0"}]`）。
-  - **容错补救机制**：前端列表需提供 Checkbox 勾选框，支持批量逻辑删除（`POST /api/finance/batch-delete`）。
+1. 前端通过 `Authorization: Bearer <token>` 携带登录令牌
+2. 后端使用 Sa-Token 进行登录态管理
+3. 登录与注册接口位于 `/api/auth`
 
-**【验收标准 (Acceptance Criteria)】**
+### 4.2 JWT / 登录态附加信息
 
-- **AC-3.2.1 (金额边界校验)**：录入财务流水时，前端与后端需双向拦截，当 `amount` 为 `0` 或 `-100` 时，系统拒绝入库并抛出非法参数提示。
-- **AC-3.2.2 (Excel 批量导入原子性与错误反馈)**：上传包含 100 条记录的模板，若第 5 行金额格式非法，系统必须执行**全量回滚**，并精确返回包含 `{"row": 5, "error": "XXX"}` 的 JSON 错误集合。
-- **AC-3.2.3 (批量删除隔离验证)**：前端勾选 3 条数据发起批量删除后，重新刷新页面列表，被删除数据不再展示，且不影响系统其他模块同 ID 的数据。
+登录成功后，后端在登录态 `extra` 中写入：
 
-### 3.3 AOP 系统审计模块
+1. `user_id`
+2. `role`
+3. `company_id`
 
-- **FR-3.3.1 拦截范围**：针对财务表与人事表的 `UPDATE` 操作。
-- **FR-3.3.2 抓取逻辑**：拦截器在修改前执行 `SELECT` 获取原对象，修改后获取新对象，比对字段差异。序列化发生变更的英文字段名、`old_value` 和 `new_value`，异步写入审计日志。
-- **FR-3.3.3 软关联查询**：前端请求日志列表时，查询条件必须联合传递业务模块标识 `module` 与目标数据主键 `target_id`，以解决底层多表自增主键冲突问题。
+`CurrentSessionService` 通过上述附加信息读取当前用户、角色与租户。
 
-**【验收标准 (Acceptance Criteria)】**
+### 4.3 多租户隔离实现
 
-- **AC-3.3.1 (精准差异抓取)**：修改某条财务记录的 `remark` 字段（金额与日期不变），审查日志记录，其 `new_value` 和 `old_value` 内部仅包含被修改的 `remark` 字段差异，不得包含所有字段。
-- **AC-3.3.2 (多态查询验证)**：查询日志接口时，若未携带 `module` 参数仅提供 `target_id`，接口必须直接返回参数缺失错误（HTTP 400）。
+系统使用 MyBatis-Plus `TenantLineInnerInterceptor` 自动注入 `company_id` 条件。当前租户字段为：
 
-## 4. AI 数字助理集成规约 (AI Integration Specifications)
+1. 列名：`company_id`
 
-### 4.1 记忆控制与上下文注入
+当前被显式忽略租户拦截的表：
 
-- **令牌（Token）保护机制**：利用 LangChain4j 的 `MessageWindowChatMemory`。每次发往 LLM 的负载仅限：`[系统全局 Prompt]` + `[最近 5 轮对话记录]` + `[当前用户输入]`。
-- **全局上下文组装**：系统 Prompt 必须动态注入当前登录企业的业务描述画像（Description）与纳税人性质（Taxpayer Type）。
+1. `company`
+2. `user`
+3. `audit_log`
+4. `ai_chat_log`
+5. `home_ai_summary_snapshot`
 
-### 4.2 智能体工具库设计 (Function Calling API)
+这些表不依赖自动租户注入，需在业务层显式按 `company_id` 过滤。
 
-后端必须注册并精确描述以下 8 个 `@Tool`，禁止 LLM 执行数学运算，所有聚合指标必须由 Java 后台计算后下发。
+### 4.4 AI 异步流程中的租户上下文
 
-| 模块层级        | 工具名称 (Tool ID)               | 方法入参 (Parameters)                      | 预期返回数据结构 (Returns)    | 核心职责                                                     |
-| --------------- | -------------------------------- | ------------------------------------------ | ----------------------------- | ------------------------------------------------------------ |
-| **L1 原子查询** | `query_financial_records`        | `startDate`, `endDate`, `type`, `category`, `keyword` | `List<FinanceDTO>` (上限50条) | 查询底层财务明细表                                           |
-|                 | `query_financial_categories`     | `type`                                     | `List<String>`                | 返回当前公司真实财务分类筛选项，并按收支类型联动             |
-|                 | `query_employee_list`            | `keyword`, `status`                        | `List<EmployeeDTO>`           | 查询花名册（支持姓名/部门/职位/备注模糊匹配）               |
-|                 | `query_tax_records`              | `keyword`, `status`                        | `List<TaxDTO>`                | 查询税务明细与状态（支持所属期/税种/申报类型/备注模糊匹配） |
-|                 | `query_audit_logs`               | `module`, `startDate`, `endDate`           | `List<AuditLogDTO>`           | 查询操作溯源日志                                             |
-| **L2 聚合计算** | `calculate_financial_sum`        | `startDate`, `endDate`, `type`, `groupBy`  | `Map<String, BigDecimal>`     | 按条件分组求和 (如按分类统计支出)                            |
-|                 | `calculate_tax_sum`              | `startPeriod`, `endPeriod`, `status`       | `BigDecimal`                  | 求和指定周期内的总税额                                       |
-| **L3 宏观诊断** | `get_business_snapshot`          | `yearMonth` (如 "2026-03")                 | `BusinessSnapshotJSON`        | 联合多模块，一次性返回当月总收支、利润、已缴与待缴税金等全局快照 |
-| **L4 HITL**    | `update_company_description`     | `newDescription`                           | HITL 挂起响应                 | 更新企业业务画像（触发 HITL 二次确认流，不直接落库）          |
+AI 流式对话运行在异步线程池中。后端通过 `TenantContextHolder` 在 AI 对话分发前注入 `company_id`，在完成后清理上下文，以保证 AI 相关数据查询仍能按租户执行。
 
-### 4.3 动态业务上下文学习 (HITL 工作流)
+## 5. 后端通用返回规范
 
-当大模型识别出业务变化并决议调用 `update_company_description` 工具时，系统必须遵循以下时序：
+### 5.1 统一响应包装
 
-1. **挂起执行**：Java 工具类内不触发任何底层更新语句。
-2. **生成凭证**：服务端在缓存中生成安全凭证 `confirm_token`，存活期 5 分钟。
-3. **阻断响应**：向上游抛出包含 `REQUIRE_CONFIRM` 动作、旧值与新值提议的特殊 HTTP 响应体。
-4. **人工介入**：前端渲染包含新旧值对比的确认组件。
-5. **落地执行**：用户点击确认，前端请求专用确认接口，后端核验 Token 后持久化入库，更新企业档案。
+除文件下载与 SSE 之外，普通接口统一返回：
 
-## 5. RESTful API 接口规约 (API Specifications)
-
-本章节定义前后端数据交互的核心规范。所有未在本章穷举的接口，均需严格遵守本章的全局响应约定。
-
-### 5.1 全局响应与鉴权约定 (Global API Rules)
-
-**1. 请求头注入 (Headers)** 前端发起的任何非登录业务请求，必须携带身份鉴权 Token： `Authorization: Bearer <jwt_token>`
-
-**2. 统一响应包装体 (Unified Response Wrapper)** 后端接口无论成功或失败，HTTP Status 均尽量返回 `200 OK`（鉴权失败除外），具体的业务状态由 JSON 根部的 `code` 决定。必须采用以下结构体 `Result<T>`：
-
-```
+```json
 {
-  "code": 200,                // 业务状态码 (200: 成功, 400: 参数错误, 500: 服务器异常)
-  "message": "操作成功",       // 友好的前端提示文案
-  "data": { ... }             // 泛型数据负载 (可为 Object, Array 或 null)
+  "code": 200,
+  "message": "操作成功",
+  "data": {}
 }
 ```
 
-### 5.2 核心业务模块接口定义 (高优示例)
+说明：
 
-#### 5.2.1 财务明细分页查询
+1. `code` 为业务状态码
+2. `message` 为提示文本
+3. `data` 为业务数据
 
-- **接口地址**：`GET /api/finance/list`
+### 5.2 分页接口
 
-- **功能描述**：获取财务流水列表，支持多条件检索。**注意：禁止前端传入 company_id。**
+分页查询接口返回 MyBatis-Plus `IPage<T>` 的序列化结果。前端当前主要消费：
 
-- **请求参数 (Query Parameters)**：`page`, `size`, `type`, `startDate`, `endDate`
+1. `records`
+2. `total`
 
-- **成功响应示例 (Response)**：
+## 6. 业务接口规格
 
-  ```
-  {
-    "code": 200,
-    "message": "查询成功",
-    "data": {
-      "total": 156,
-      "records": [
-        {
-          "id": "1001",
-          "type": "expense",
-          "amount": "5000.00",
-          "category": "采购支出",
-          "date": "2026-04-01",
-          "remark": "采购办公电脑"
-        }
-      ]
-    }
+### 6.1 认证模块
+
+#### `POST /api/auth/login`
+
+请求体：
+
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+返回核心字段：
+
+1. `token`
+2. `role`
+3. `realName`
+4. `companyName`
+5. `companyCode`
+6. `industry`
+7. `taxpayerType`
+
+实现约束：
+
+1. 连续登录失败会触发短期锁定
+2. 被禁用用户不可登录
+3. 被禁用企业下的用户不可登录
+
+#### `POST /api/auth/register`
+
+请求体：
+
+```json
+{
+  "username": "string",
+  "password": "string",
+  "realName": "string",
+  "companyCode": "string"
+}
+```
+
+实现约束：
+
+1. 注册成功后角色固定为 `staff`
+2. `companyCode` 必须对应真实企业
+3. 密码必须满足强度规则
+
+### 6.2 平台租户管理模块（`admin`）
+
+接口：
+
+1. `GET /api/admin/company/list`
+2. `POST /api/admin/company`
+3. `POST /api/admin/company/{companyId}/owner`
+4. `PUT /api/admin/company/{id}/status`
+
+能力说明：
+
+1. 查询企业列表
+2. 创建企业
+3. 为企业创建 `owner`
+4. 启用或禁用企业
+
+### 6.3 企业用户管理模块（`owner`）
+
+接口：
+
+1. `GET /api/user/list`
+2. `POST /api/user`
+3. `PUT /api/user/{id}/status`
+4. `PUT /api/user/{id}/reset-password`
+
+能力说明：
+
+1. 仅 `owner` 可访问
+2. 当前主要管理员工账号
+3. 支持创建、启停和密码重置
+
+### 6.4 财务模块（`owner` / `staff`）
+
+接口：
+
+1. `GET /api/finance/list`
+2. `GET /api/finance/categories`
+3. `GET /api/finance/recycle-bin/list`
+4. `POST /api/finance`
+5. `PUT /api/finance/{id}`
+6. `DELETE /api/finance/{id}`
+7. `POST /api/finance/batch-delete`
+8. `POST /api/finance/recycle-bin/{id}/restore`
+9. `POST /api/finance/recycle-bin/batch-restore`
+10. `POST /api/finance/import`
+11. `GET /api/finance/template`
+
+查询参数：
+
+1. `page`
+2. `size`
+3. `type`
+4. `category`
+5. `startDate`
+6. `endDate`
+7. `keyword`
+
+权限约束：
+
+1. 财务主接口允许 `owner` 与 `staff`
+2. 回收站查询与恢复只允许 `owner`
+
+实现说明：
+
+1. 删除为逻辑删除
+2. 恢复从回收站执行
+3. 导入接口使用 `multipart/form-data`
+4. 模板接口返回文件流
+
+### 6.5 员工模块（`owner` / `staff`）
+
+接口：
+
+1. `GET /api/employee/list`
+2. `GET /api/employee/recycle-bin/list`
+3. `POST /api/employee`
+4. `PUT /api/employee/{id}`
+5. `DELETE /api/employee/{id}`
+6. `POST /api/employee/batch-delete`
+7. `POST /api/employee/recycle-bin/{id}/restore`
+8. `POST /api/employee/recycle-bin/batch-restore`
+9. `POST /api/employee/import`
+10. `GET /api/employee/template`
+
+查询参数：
+
+1. `page`
+2. `size`
+3. `keyword`
+4. `department`
+5. `status`
+
+权限约束：
+
+1. 员工主接口允许 `owner` 与 `staff`
+2. 回收站查询与恢复只允许 `owner`
+
+### 6.6 税务模块（`owner` / `staff`）
+
+接口：
+
+1. `GET /api/tax/list`
+2. `GET /api/tax/recycle-bin/list`
+3. `POST /api/tax`
+4. `PUT /api/tax/{id}`
+5. `DELETE /api/tax/{id}`
+6. `POST /api/tax/batch-delete`
+7. `POST /api/tax/recycle-bin/{id}/restore`
+8. `POST /api/tax/recycle-bin/batch-restore`
+9. `POST /api/tax/import`
+10. `GET /api/tax/template`
+
+查询参数：
+
+1. `page`
+2. `size`
+3. `keyword`
+4. `paymentStatus`
+5. `taxPeriod`
+6. `taxType`
+
+权限约束：
+
+1. 税务主接口允许 `owner` 与 `staff`
+2. 回收站查询与恢复只允许 `owner`
+
+## 7. 首页与数据看板规格
+
+### 7.1 首页接口
+
+#### `GET /api/dashboard/home`
+
+权限：
+
+1. 仅 `owner`
+
+返回核心字段：
+
+1. `totalIncome`
+2. `totalExpense`
+3. `netProfit`
+4. `unpaidTax`
+5. `hasUnpaidWarning`
+6. `monthlyTrend[]`
+7. `departmentHeadcount[]`
+8. `taxCalendar[]`
+9. `setupStatus`
+
+说明：
+
+1. `monthlyTrend` 当前固定覆盖近 6 个自然月
+2. `taxCalendar` 返回近期税务节点
+3. `setupStatus` 当前至少包含 `hasStaffAccount`、`hasFinanceRecord`
+
+#### `GET /api/dashboard/home-ai-summary`
+
+权限：
+
+1. 仅 `owner`
+
+返回结构：
+
+1. `summaryLines`
+2. `generatedAt`
+3. `status`
+
+状态值：
+
+1. `ready`
+2. `refreshing`
+3. `empty`
+4. `failed`
+
+实现约束：
+
+1. 首页 AI 摘要持久化到 `home_ai_summary_snapshot`
+2. 快照保存 `summary_lines_json`、`status`、`is_dirty`、`generated_at`、`refresh_started_at`、`last_error`
+3. 摘要刷新采用异步事件触发
+4. 当前刷新超时阈值为 90 秒
+5. 当存在旧摘要且刷新失败时，接口可继续返回旧摘要并将快照标记为脏
+
+### 7.2 财务看板接口
+
+#### `GET /api/dashboard/finance`
+
+权限：
+
+1. 仅 `owner`
+
+参数：
+
+1. `range`，支持 `last3months`、`last6months`、`last12months`、`all`
+
+返回核心字段：
+
+1. `totalExpense`
+2. `totalIncome`
+3. `expenseBreakdown[]`
+4. `topIncomeSources[]`
+5. `monthlyTrend[]`
+6. `incomeConcentration`
+7. `periodComparison`
+
+### 7.3 人事看板接口
+
+#### `GET /api/dashboard/hr`
+
+权限：
+
+1. 仅 `owner`
+
+参数：
+
+1. `range`，支持 `last3months`、`last6months`、`last12months`、`all`
+
+返回核心字段：
+
+1. `activeEmployeeCount`
+2. `activeSalaryTotal`
+3. `departmentSalaryShare[]`
+4. `monthlyTrend[]`
+
+### 7.4 税务看板接口
+
+#### `GET /api/dashboard/tax`
+
+权限：
+
+1. 仅 `owner`
+
+参数：
+
+1. `range` 当前前端主流程按年份字符串传递，如 `2026`
+
+返回核心字段：
+
+1. `taxBurdenRate`
+2. `positiveTaxAmount`
+3. `incomeBase`
+4. `unpaidTaxAmount`
+5. `availableYears[]`
+6. `selectedYear`
+7. `taxTypeStructure[]`
+8. `statusSummary[]`
+9. `periodComparison`
+10. `recentOutstanding[]`
+
+补充说明：
+
+1. 后端兼容部分旧范围值，但当前主交互以“年度选择”为准
+2. `periodComparison` 用于展示与上一基线周期的差异
+
+## 8. 审计日志规格
+
+### 8.1 接口
+
+#### `GET /api/audit/list`
+
+权限：
+
+1. 仅 `owner`
+
+参数：
+
+1. `page`
+2. `size`
+3. `module`
+4. `operationType`
+5. `startDate`
+6. `endDate`
+
+### 8.2 当前支持的筛选值
+
+模块：
+
+1. `finance`
+2. `employee`
+3. `tax`
+
+操作类型：
+
+1. `CREATE`
+2. `UPDATE`
+3. `DELETE`
+4. `RESTORE`
+
+### 8.3 返回结构
+
+每条聚合操作返回：
+
+1. `id`
+2. `module`
+3. `operationType`
+4. `targetId`
+5. `operationTime`
+6. `userId`
+7. `operatorName`
+8. `changeCount`
+9. `changes[]`
+
+`changes[]` 每项包含：
+
+1. `fieldName`
+2. `oldValue`
+3. `newValue`
+
+### 8.4 实现说明
+
+1. 当前审计不是只记录 `UPDATE`
+2. 新增、编辑、删除、恢复都已纳入审计范围
+3. 接口当前不要求也不支持“`module + target_id` 组合查询”作为前置条件
+4. 查询以聚合操作视角返回，不是逐行裸审计表直接透出
+
+## 9. AI 智能助理规格
+
+### 9.1 权限与入口
+
+1. AI 模块仅 `owner` 可访问
+2. 前端主入口为 `/ai-chat` 全屏工作台
+
+### 9.2 接口
+
+1. `POST /api/ai/chat`
+2. `POST /api/ai/confirm-action`
+3. `GET /api/ai/sessions`
+4. `GET /api/ai/sessions/{sessionId}/messages`
+5. `DELETE /api/ai/sessions/{sessionId}`
+
+### 9.3 流式对话协议
+
+`POST /api/ai/chat` 返回 `text/event-stream`，当前事件名固定为：
+
+1. `start`
+2. `token`
+3. `action_required`
+4. `error`
+5. `done`
+
+事件载荷：
+
+#### `start`
+
+```json
+{ "sessionId": "uuid" }
+```
+
+#### `token`
+
+```json
+{ "delta": "..." }
+```
+
+#### `action_required`
+
+```json
+{
+  "sessionId": "uuid",
+  "actionRequired": {
+    "actionId": 1,
+    "toolName": "update_company_description",
+    "oldValue": "...",
+    "proposedValue": "...",
+    "confirmToken": "token"
   }
-  ```
+}
+```
 
-#### 5.2.2 批量删除（容错补救）
+#### `error`
 
-- **接口地址**：`POST /api/finance/batch-delete`
-- **功能描述**：用于 Excel 批量导入错误后的快速撤销，执行底层逻辑删除。
-- **请求体 (Request Body: application/json)**：`{ "ids": [1001, 1002, 1003] }`
+```json
+{
+  "code": 500,
+  "message": "..."
+}
+```
 
-### 5.3 AI 与 HITL 核心交互接口
+#### `done`
 
-#### 5.3.1 AI 对话发起接口 (SSE 流式)
+```json
+{
+  "sessionId": "uuid",
+  "reason": "message|action_required|error",
+  "messageId": 123,
+  "messageType": "markdown"
+}
+```
 
-- **接口地址**：`POST /api/ai/chat`
+### 9.4 会话与消息模型
 
-- **协议**：**Server-Sent Events (SSE)**。响应 Content-Type 为 `text/event-stream`，实现打字机流式渲染。后端基于 LangChain4j 的 `StreamingChatLanguageModel` 驱动令牌逐步推送。
+会话列表项：
 
-- **请求体 (Request Body)**：`{ "message": "我们最近新增了迪拜海外业务项目" }`
+1. `sessionId`
+2. `title`
+3. `lastMessagePreview`
+4. `lastMessageTime`
 
-- **SSE 事件流定义**：
+消息项：
 
-  **事件 A：正常文本流式推送**
+1. `id`
+2. `role`
+3. `messageType`
+4. `content`
+5. `metadata`
+6. `createTime`
 
-  ```
-  event: token
-  data: {"content": "好的"}
+当前消息类型：
 
-  event: token
-  data: {"content": "老板"}
+1. `text`
+2. `markdown`
+3. `action_required`
+4. `action_result`
 
-  event: token
-  data: {"content": "，我已经"}
+### 9.5 HITL 人工确认
 
-  ...
+当前敏感动作通过 `ai_pending_action` 表持久化，核心字段包括：
 
-  event: done
-  data: {"content": "[完整回复文本]"}
-  ```
+1. `action_type`
+2. `confirm_token`
+3. `old_value`
+4. `proposed_value`
+5. `status`
+6. `expires_at`
 
-  前端通过 `EventSource` 或 `fetch + ReadableStream` 逐条接收 `event: token` 并追加渲染。收到 `event: done` 后关闭连接并持久化完整消息。
+当前动作状态：
 
-  **事件 B：触发 HITL (拦截并要求人工确认) 【核心】**
+1. `pending`
+2. `approved`
+3. `rejected`
+4. `expired`
 
-  当大模型试图调用更新企业画像的工具时，后端阻断落库操作，在 SSE 流中插入特殊事件类型：
+当前确认令牌有效期为：
 
-  ```
-  event: action_required
-  data: {"tool_name": "update_company_description", "old_value": "主营国内电商", "proposed_value": "主营国内电商，近期新增迪拜海外业务项目", "confirm_token": "secure_token_xyz789"}
-  ```
+1. 5 分钟
 
-  前端收到 `event: action_required` 后渲染 HITL 确认卡片，流正常结束。
+### 9.6 当前 AI 工具清单
 
-  **事件 C：错误处理**
+当前真实工具只有以下 9 个：
 
-  ```
-  event: error
-  data: {"code": 500, "message": "AI 服务暂时不可用"}
-  ```
+| 工具名 | 作用 | 关键参数 |
+| --- | --- | --- |
+| `query_financial_records` | 查询财务明细样本，最多 50 条 | `startDate` `endDate` `type` `category` |
+| `query_employee_list` | 查询员工列表 | `department` `status` |
+| `query_tax_records` | 查询税务明细样本，最多 50 条 | `taxPeriod` `taxType` `status` |
+| `query_audit_logs` | 查询审计日志样本，最多 50 条 | `module` `startDate` `endDate` |
+| `get_current_datetime` | 获取后端当前日期时间与期间边界 | 无 |
+| `calculate_financial_sum` | 计算权威财务汇总 | `startDate` `endDate` `type` `groupBy` |
+| `calculate_tax_sum` | 计算税期区间税额汇总 | `startPeriod` `endPeriod` `status` |
+| `get_business_snapshot` | 生成某月经营快照 | `yearMonth` |
+| `update_company_description` | 发起企业画像更新确认流程 | `newDescription` |
 
-#### 5.3.2 AI 动作二次确认接口 (Confirm Action)
+说明：
+1. AI 回答涉及具体财务或税务数字时，系统提示要求附加统一脚注
 
-- **接口地址**：`POST /api/ai/confirm-action`
+### 9.7 当前 AI 行为约束
 
-- **功能描述**：前端弹出确认卡片，用户点击“同意”后，调用此接口真正更新数据库。
+1. 固定使用简体中文回答
+2. 遇到“今天 / 本月 / 本季度 / 今年”等相对时间问题时，应优先调用 `get_current_datetime`
+3. 遇到财务汇总类问题，应优先调用 `calculate_financial_sum`
+4. 当前记忆窗口为最近 5 轮对话
+5. 当前最多执行 4 轮工具调用循环
 
-- **请求体 (Request Body)**：
+## 10. 个人中心与公司配置接口
 
-  ```
-  {
-    "confirm_token": "jwt_or_redis_token_xyz789",
-    "is_approved": true
-  }
-  ```
+接口：
 
-### 5.4 认证与用户管理接口
+1. `GET /api/profile/me`
+2. `PUT /api/profile/me`
+3. `PUT /api/profile/password`
+4. `PUT /api/profile/company`
 
-#### 5.4.1 统一登录接口
+权限说明：
 
-- **接口地址**：`POST /api/auth/login`
-- **功能描述**：用户输入账号密码登录，后端校验凭据并根据数据库中存储的角色返回 Token 与权限信息。**前端角色选择器仅作为 UI 引导，不作为鉴权依据。**
-- **请求体 (Request Body)**：`{ "username": "admin01", "password": "Abc@123456" }`
-- **成功响应示例**：
+1. `/api/profile/me` 与 `/api/profile/password` 登录用户可用
+2. `/api/profile/company` 仅 `owner`
 
-  ```
-  {
-    "code": 200,
-    "message": "登录成功",
-    "data": {
-      "token": "eyJhbGciOiJIUzI1NiJ9...",
-      "role": "owner",
-      "realName": "张总",
-      "companyName": "深圳XX贸易有限公司"
-    }
-  }
-  ```
+字段说明：
 
-#### 5.4.2 员工自主注册接口
+`GET /api/profile/me` 当前返回：
 
-- **接口地址**：`POST /api/auth/register`
-- **功能描述**：仅限 Staff 角色使用。注册时必须携带 6 位企业码，后端校验企业码有效性后自动归入对应租户。
-- **请求体 (Request Body)**：`{ "username": "staff01", "password": "Abc@123456", "realName": "李录入", "companyCode": "A1B2C3" }`
+1. `id`
+2. `username`
+3. `realName`
+4. `role`
+5. `companyName`
+6. `companyCode`
+7. `industry`
+8. `taxpayerType`
+9. `companyDescription`
 
-#### 5.4.3 用户管理 (Owner 管理 Staff 账号)
+`PUT /api/profile/company` 当前支持：
 
-- **获取列表**：`GET /api/user/list` — 分页查询当前公司下的用户列表
-- **创建账号**：`POST /api/user` — Owner 为下属 Staff 创建账号
-- **修改状态**：`PUT /api/user/{id}/status` — 启用/禁用账号
-- **重置密码**：`PUT /api/user/{id}/reset-password` — Owner 重置下属密码
+1. `name`
+2. `industry`
+3. `taxpayerType`
+4. `description`
 
-### 5.5 基础数据 CRUD 接口
+补充说明：
 
-以下接口均遵循统一响应包装体，前端严禁传入 `company_id`。
+1. 当前主布局默认使用侧栏弹层，已稳定接入修改密码与企业画像快改
+2. 代码中保留的旧 Drawer 已接入更完整的公司信息表单，但不属于当前主布局主路径
 
-#### 5.5.1 财务记录
+## 11. 数据持久化模型
 
-- **分页查询**：`GET /api/finance/list` — 参数：`page`, `size`, `type`, `category`, `startDate`, `endDate`
-- **新增**：`POST /api/finance` — 单笔录入
-- **修改**：`PUT /api/finance/{id}` — 单笔编辑（触发 AOP 审计）
-- **单笔删除**：`DELETE /api/finance/{id}` — 逻辑删除
-- **批量删除**：`POST /api/finance/batch-delete` — 请求体 `{ "ids": [...] }`
-- **Excel 导入**：`POST /api/finance/import` — Multipart 文件上传
-- **模板下载**：`GET /api/finance/template` — 下载标准 `.xlsx` 导入模板
+当前核心表：
 
-#### 5.5.2 员工记录
+1. `company`
+2. `user`
+3. `finance_record`
+4. `employee`
+5. `tax_record`
+6. `audit_log`
+7. `ai_chat_log`
+8. `ai_pending_action`
+9. `home_ai_summary_snapshot`
 
-- **分页查询**：`GET /api/employee/list` — 参数：`page`, `size`, `department`, `status`
-- **新增**：`POST /api/employee`
-- **修改**：`PUT /api/employee/{id}`（触发 AOP 审计）
-- **单笔删除**：`DELETE /api/employee/{id}`
-- **批量删除**：`POST /api/employee/batch-delete`
-- **Excel 导入**：`POST /api/employee/import`
-- **模板下载**：`GET /api/employee/template`
+通用约束：
 
-#### 5.5.3 税务记录
+1. 业务表采用逻辑删除字段 `is_deleted`
+2. 财务、员工、税务记录通过逻辑删除进入回收站
+3. 审计、AI 会话、首页 AI 摘要均有独立持久化表
 
-- **分页查询**：`GET /api/tax/list` — 参数：`page`, `size`, `taxType`, `paymentStatus`, `taxPeriod`
-- **新增**：`POST /api/tax`
-- **修改**：`PUT /api/tax/{id}`
-- **单笔删除**：`DELETE /api/tax/{id}`
-- **批量删除**：`POST /api/tax/batch-delete`
+## 12. 配置与安全要求
 
-### 5.6 数据看板与大屏聚合接口
+### 12.1 文档示例必须脱敏
 
-#### 5.6.1 首页驾驶舱数据
+文档中不得继续直接引用本地 `application.yml` 中的真实数据库账号、密码或 AI Key。示例配置应统一改为占位符或环境变量形式。
 
-- **接口地址**：`GET /api/dashboard/home`
-- **功能描述**：一次性返回首页大屏所需的全部聚合指标。
-- **响应 data 结构**：
+推荐写法：
 
-  ```
-  {
-    "totalIncome": "150000.00",
-    "totalExpense": "98000.00",
-    "netProfit": "52000.00",
-    "unpaidTax": "3200.00",
-    "hasUnpaidWarning": true,
-    "monthlyTrend": [ { "month": "2025-11", "income": "...", "expense": "...", "profit": "..." }, ... ],
-    "taxCalendar": [ { "taxPeriod": "2026-Q1", "taxType": "增值税", "status": 0, "amount": "3200.00" }, ... ]
-  }
-  ```
+```yaml
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/ems?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:change_me}
 
-#### 5.6.2 数据看板 - 财务剖析
+sa-token:
+  token-name: Authorization
+  token-prefix: Bearer
+  jwt-secret-key: ${JWT_SECRET:replace_me}
 
-- **接口地址**：`GET /api/dashboard/finance`
-- **功能描述**：返回支出分类占比、前五大收入来源等看板数据。
+app:
+  ai:
+    enabled: ${AI_ENABLED:false}
+    base-url: ${AI_BASE_URL:https://example.com/compatible-mode/v1}
+    api-key: ${AI_API_KEY:replace_me}
+    model: ${AI_MODEL:qwen3.5-flash}
+```
 
-#### 5.6.3 数据看板 - 人事洞察
+### 12.2 运行约束
 
-- **接口地址**：`GET /api/dashboard/hr`
-- **功能描述**：返回各部门薪资占比、人效趋势等看板数据。
+1. 前端请求超时当前为 15 秒
+2. AI 请求超时当前为 60 秒
+3. Sa-Token 当前使用 Bearer 风格令牌
 
-#### 5.6.4 数据看板 - 税务健康
+## 13. 验证基线
 
-- **接口地址**：`GET /api/dashboard/tax`
-- **功能描述**：返回综合税负率、各税种结构等健康指标。
+本版文档对齐完成后，当前代码基线验证要求如下：
 
-### 5.7 审计日志接口
+1. 前端构建命令：`npm.cmd run build`
+2. 后端测试命令：`./mvnw.cmd test`
 
-- **接口地址**：`GET /api/audit/list`
-- **请求参数**：`module`（必填）, `targetId`（必填）, `page`, `size`
-- **功能描述**：查询指定模块、指定数据的操作变更历史。`module` 与 `targetId` 必须联合传递，缺一返回 HTTP 400。
+当前基线结果：
 
-### 5.8 AI 历史对话接口
+1. 前端构建通过
+2. 后端测试通过
+3. 测试总数为 129
 
-#### 5.8.1 获取会话列表
-
-- **接口地址**：`GET /api/ai/sessions`
-- **功能描述**：返回当前用户所有的 AI 对话会话，按最新消息时间倒序。
-
-#### 5.8.2 获取会话消息
-
-- **接口地址**：`GET /api/ai/sessions/{sessionId}/messages`
-- **请求参数**：`page`, `size`
-- **功能描述**：分页拉取某个会话的历史消息记录，用于前端瀑布流回溯。
-
-### 5.9 Admin 租户管理接口
-
-以下接口仅限 `admin` 角色访问，通过 Sa-Token 角色鉴权拦截。
-
-- **公司列表**：`GET /api/admin/company/list` — 分页查询所有公司
-- **创建公司**：`POST /api/admin/company` — 录入公司档案并生成 6 位企业码
-- **创建 Owner**：`POST /api/admin/company/{companyId}/owner` — 为公司创建初始老板账号
-- **禁用公司**：`PUT /api/admin/company/{id}/status` — 启用/禁用租户
-
-## 6. 非功能性需求 (Non-Functional Requirements)
-
-### 6.1 安全规约
-
-- **密码加密**：用户密码必须使用 BCrypt 算法加盐加密存储，严禁明文或 MD5。
-- **JWT 过期策略**：Token 有效期设为 **24 小时**，过期后前端跳转登录页重新认证。本期不实现 Refresh Token 机制。
-- **密码复杂度**：至少 8 位，必须包含大写字母、小写字母和数字。
-- **登录安全**：同一账号连续 5 次密码错误后，锁定 15 分钟。
-- **CORS**：后端必须配置跨域白名单，仅允许前端开发域名（`localhost:5173`）和生产域名访问。
-
-### 6.2 性能指标
-
-- **API 响应**：常规 CRUD 接口 P95 响应时间 < 500ms（不含 AI 模块）。
-- **AI 首 Token 延迟**：SSE 流式首个 `token` 事件需在 3 秒内返回。
-- **并发能力**：单实例支撑 50 并发用户（毕业设计演示规模）。
-- **单租户数据容量**：财务记录上限 10 万条，员工记录上限 1000 条。
-
-### 6.3 PDF 导出
-
-- **技术方案**：前端采用 `html2canvas` + `jsPDF` 纯客户端方案，将当前大屏/看板 DOM 截图并拼接为 PDF 文件。
-- **约束**：导出时需显示加载遮罩，防止用户在截图过程中操作界面导致数据偏移。
