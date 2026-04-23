@@ -2,6 +2,7 @@
 .cursor/
 .idea/
 .vscode/
+.claude/
 
 client/node_modules/
 client/dist/
@@ -12,6 +13,8 @@ tmp/
 test-results/
 *.log
 AGENTS.md
+CLAUDE.md
+进度.md
 
 # OS/editor noise at workspace root
 Thumbs.db
