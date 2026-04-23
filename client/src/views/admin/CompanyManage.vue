@@ -169,40 +169,38 @@ onMounted(fetchList)
     :filter-count="0"
     :row-count="7"
   />
-  <div v-else class="company-manage">
-    <div class="page-header">
-      <h2 class="page-title">租户管理</h2>
-    </div>
-
-    <div class="action-bar">
-      <div class="action-left">
-        <el-button type="primary" :icon="Plus" @click="openCompanyDialog">新建公司</el-button>
+  <div v-else class="crud-page">
+    <div class="crud-card">
+      <div class="crud-page-header">
+        <div>
+          <h2 class="crud-page-title">租户管理</h2>
+          <p class="crud-page-subtitle">管理平台多租户信息及系统资源分配。</p>
+        </div>
       </div>
-      <div class="action-right">
-        <el-input
-          v-model="keyword"
-          placeholder="搜索公司名称"
-          clearable
-          :prefix-icon="Search"
-          style="width: 240px"
-          @keyup.enter="handleSearch"
-          @clear="handleSearch"
-        />
-      </div>
-    </div>
 
-    <el-table
-      :data="tableData"
-      style="width: 100%"
-      :header-cell-style="{
-        background: '#f6f5f4',
-        color: '#615d59',
-        fontWeight: 600,
-        fontSize: '13px',
-        height: '44px',
-      }"
-      :row-style="{ height: '48px' }"
-    >
+      <div class="crud-toolbar">
+        <div class="crud-toolbar-left">
+          <el-button type="primary" :icon="Plus" @click="openCompanyDialog">新建公司</el-button>
+        </div>
+        <div class="crud-toolbar-right">
+          <el-input
+            v-model="keyword"
+            placeholder="搜索公司名称"
+            clearable
+            :prefix-icon="Search"
+            style="width: 240px"
+            @keyup.enter="handleSearch"
+            @clear="handleSearch"
+          />
+        </div>
+      </div>
+
+      <div class="crud-table-section">
+        <el-table
+          :data="tableData"
+          stripe
+          style="width: 100%"
+        >
       <el-table-column prop="name" label="公司名称" min-width="180" show-overflow-tooltip />
       <el-table-column prop="companyCode" label="企业码" width="120" align="center">
         <template #default="{ row }">
@@ -248,18 +246,20 @@ onMounted(fetchList)
           />
         </template>
       </el-table-column>
-    </el-table>
+      </el-table>
+      </div>
 
-    <div class="pagination-wrapper">
-      <el-pagination
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        :page-sizes="[20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <div class="crud-pagination">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[20, 50, 100]"
+          :total="total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @current-change="handlePageChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
     </div>
 
     <!-- 新建公司对话框 -->
@@ -349,34 +349,8 @@ onMounted(fetchList)
 </template>
 
 <style scoped>
-.company-manage {
-  padding: 0 4px;
-}
-
-.page-header {
-  margin-bottom: 20px;
-}
-
-.page-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.95);
-  letter-spacing: -0.25px;
-}
-
-.action-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 48px;
+.crud-page-header {
   margin-bottom: 16px;
-}
-
-.action-left,
-.action-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .code-badge {
@@ -399,43 +373,5 @@ onMounted(fetchList)
 .text-muted {
   color: #a39e98;
   font-size: 13px;
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-  padding: 8px 0;
-}
-
-:deep(.el-table) {
-  --el-table-border-color: rgba(0, 0, 0, 0.06);
-  --el-table-row-hover-bg-color: rgba(0, 117, 222, 0.03);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-:deep(.el-table th.el-table__cell) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-:deep(.el-dialog__header) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  padding-bottom: 16px;
-}
-
-:deep(.el-dialog__title) {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-:deep(.el-dialog__footer) {
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
-  padding-top: 16px;
-}
-
-:deep(.el-form-item__label) {
-  font-weight: 500;
-  color: rgba(0, 0, 0, 0.85);
 }
 </style>

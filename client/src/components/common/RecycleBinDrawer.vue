@@ -132,30 +132,4 @@ function handleSelectionChange(rows: RecycleBinRow[]) {
   display: flex;
   justify-content: flex-end;
 }
-
-:deep(.el-drawer__header) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  margin-bottom: 0;
-  padding: 16px 24px;
-}
-
-:deep(.el-drawer__body) {
-  padding: 20px 24px;
-}
-
-:deep(.el-drawer__footer) {
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
-  padding: 16px 24px;
-}
-
-:deep(.el-table) {
-  --el-table-border-color: rgba(0, 0, 0, 0.06);
-  --el-table-row-hover-bg-color: rgba(0, 117, 222, 0.03);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-:deep(.el-table th.el-table__cell) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
 </style>

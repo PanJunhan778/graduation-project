@@ -251,75 +251,71 @@ onMounted(initFromRouteQuery)
     :show-search="false"
     :row-count="8"
   />
-  <div v-else class="audit-manage">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">审计日志</h2>
-        <p class="page-subtitle">{{ pageSubtitle }}</p>
+  <div v-else class="crud-page">
+    <div class="crud-card">
+      <div class="crud-page-header">
+        <div>
+          <h2 class="crud-page-title">审计日志</h2>
+          <p class="crud-page-subtitle">{{ pageSubtitle }}</p>
+        </div>
       </div>
-    </div>
 
-    <div class="filter-panel">
-      <div class="filter-row">
-        <el-select
-          v-model="filters.module"
-          placeholder="全部模块"
-          clearable
-          style="width: 180px"
-        >
-          <el-option
-            v-for="option in moduleOptions"
-            :key="option.value"
-            :label="option.label"
-            :value="option.value"
+      <div class="crud-toolbar">
+        <div class="crud-toolbar-left">
+          <el-select
+            v-model="filters.module"
+            placeholder="全部模块"
+            clearable
+            style="width: 180px"
+          >
+            <el-option
+              v-for="option in moduleOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+          <el-date-picker
+            v-model="filters.dateRange"
+            type="daterange"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            range-separator="至"
+            value-format="YYYY-MM-DD"
+            clearable
+            style="width: 320px"
           />
-        </el-select>
-        <el-date-picker
-          v-model="filters.dateRange"
-          type="daterange"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          range-separator="至"
-          value-format="YYYY-MM-DD"
-          clearable
-          style="width: 320px"
-        />
-        <el-select
-          v-model="filters.operationType"
-          placeholder="全部操作类型"
-          clearable
-          style="width: 180px"
-        >
-          <el-option
-            v-for="option in operationTypeOptions"
-            :key="option.value"
-            :label="option.label"
-            :value="option.value"
-          />
-        </el-select>
-        <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
-        <el-button :icon="RefreshRight" @click="handleReset">重置</el-button>
+          <el-select
+            v-model="filters.operationType"
+            placeholder="全部操作类型"
+            clearable
+            style="width: 180px"
+          >
+            <el-option
+              v-for="option in operationTypeOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </div>
+        <div class="crud-toolbar-right">
+          <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+          <el-button :icon="RefreshRight" @click="handleReset">重置</el-button>
+        </div>
       </div>
-      <p class="filter-tip">每一行代表一次操作，展开后可查看该次操作下的所有字段差异。</p>
-    </div>
 
-    <div v-if="!hasLoaded && !loading" class="empty-wrapper">
-      <el-empty description="已清空筛选条件，点击查询可查看全部日志。" />
-    </div>
+      <div v-if="!hasLoaded && !loading" class="empty-wrapper">
+        <el-empty description="已清空筛选条件，点击查询可查看全部日志。" />
+      </div>
 
-    <template v-else>
-      <el-table
-        :data="tableData"
-        style="width: 100%"
-        :header-cell-style="{
-          background: '#f6f5f4',
-          color: '#615d59',
-          fontWeight: 600,
-          fontSize: '13px',
-          height: '44px',
-        }"
-        :row-style="{ height: '52px' }"
-      >
+      <template v-else>
+        <div class="crud-table-section">
+          <el-table
+            :data="tableData"
+            stripe
+            style="width: 100%"
+          >
         <el-table-column type="expand" width="56">
           <template #default="{ row }">
             <div class="expand-panel">
@@ -372,67 +368,28 @@ onMounted(initFromRouteQuery)
             {{ formatChangeSummary(row.changes) }}
           </template>
         </el-table-column>
-      </el-table>
+        </el-table>
+        </div>
 
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :page-sizes="[20, 50, 100]"
-          :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handlePageChange"
-          @size-change="handleSizeChange"
-        />
-      </div>
-    </template>
+        <div class="crud-pagination">
+          <el-pagination
+            v-model:current-page="currentPage"
+            v-model:page-size="pageSize"
+            :page-sizes="[20, 50, 100]"
+            :total="total"
+            layout="total, sizes, prev, pager, next, jumper"
+            @current-change="handlePageChange"
+            @size-change="handleSizeChange"
+          />
+        </div>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.audit-manage {
-  padding: 0 4px;
-}
-
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.page-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.95);
-  letter-spacing: -0.25px;
-}
-
-.page-subtitle {
-  margin-top: 6px;
-  font-size: 13px;
-  color: #7a746d;
-}
-
-.filter-panel {
-  padding: 16px 18px;
+.crud-page-header {
   margin-bottom: 16px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 10px;
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.filter-tip {
-  margin-top: 12px;
-  font-size: 12px;
-  color: #7a746d;
 }
 
 .empty-wrapper {
@@ -440,9 +397,6 @@ onMounted(initFromRouteQuery)
   align-items: center;
   justify-content: center;
   min-height: 360px;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 10px;
 }
 
 .expand-panel {
@@ -473,13 +427,6 @@ onMounted(initFromRouteQuery)
   width: 100%;
 }
 
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-  padding: 8px 0;
-}
-
 .value-before,
 .value-after {
   display: inline-block;
@@ -494,17 +441,6 @@ onMounted(initFromRouteQuery)
 .value-after {
   color: #0f766e;
   font-weight: 600;
-}
-
-:deep(.el-table) {
-  --el-table-border-color: rgba(0, 0, 0, 0.06);
-  --el-table-row-hover-bg-color: rgba(0, 117, 222, 0.03);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-:deep(.el-table th.el-table__cell) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 :deep(.el-table__expanded-cell) {

@@ -367,114 +367,114 @@ onMounted(fetchList)
     :filter-count="2"
     :row-count="8"
   />
-  <div v-else class="employee-manage">
-    <div class="page-header">
-      <h2 class="page-title">员工名册</h2>
-    </div>
-
-    <div class="action-bar">
-      <div class="action-left">
-        <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
-        <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>
-        <el-button v-if="userStore.isOwner" :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
-        <a class="template-link" @click="handleTemplateDownload">下载导入模板</a>
+  <div v-else class="crud-page">
+    <div class="crud-card">
+      <div class="crud-page-header">
+        <div>
+          <h2 class="crud-page-title">员工名册</h2>
+          <p class="crud-page-subtitle">维护企业员工的基本信息、薪资及在职状态。</p>
+        </div>
       </div>
-      <div class="action-right">
-        <el-button
-          :icon="Delete"
-          :disabled="!hasBatchSelection"
-          :class="{ 'batch-delete-active': hasBatchSelection }"
-          @click="handleBatchDelete"
+
+      <div class="crud-toolbar">
+        <div class="crud-toolbar-left">
+          <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
+          <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>
+          <el-button v-if="userStore.isOwner" :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
+          <a class="template-link" @click="handleTemplateDownload">下载导入模板</a>
+        </div>
+        <div class="crud-toolbar-right">
+          <el-button
+            :icon="Delete"
+            :disabled="!hasBatchSelection"
+            :class="{ 'batch-delete-active': hasBatchSelection }"
+            @click="handleBatchDelete"
+          >
+            批量删除{{ hasBatchSelection ? ` (${selectedRows.length})` : '' }}
+          </el-button>
+        </div>
+      </div>
+
+      <div class="crud-filters">
+        <el-input
+          v-model="keyword"
+          placeholder="搜索姓名、部门、职位或备注"
+          clearable
+          :prefix-icon="Search"
+          style="width: 280px"
+          @keyup.enter="handleFilter"
+          @clear="handleFilter"
+        />
+        <el-select
+          v-model="filterStatus"
+          placeholder="在职状态"
+          clearable
+          style="width: 140px"
+          @change="handleFilter"
         >
-          批量删除{{ hasBatchSelection ? ` (${selectedRows.length})` : '' }}
-        </el-button>
+          <el-option label="在职" :value="1" />
+          <el-option label="离职" :value="0" />
+        </el-select>
+        <el-button :icon="Search" @click="handleFilter">搜索</el-button>
       </div>
-    </div>
 
-    <div class="filter-bar">
-      <el-input
-        v-model="keyword"
-        placeholder="搜索姓名、部门、职位或备注"
-        clearable
-        :prefix-icon="Search"
-        style="width: 280px"
-        @keyup.enter="handleFilter"
-        @clear="handleFilter"
-      />
-      <el-select
-        v-model="filterStatus"
-        placeholder="在职状态"
-        clearable
-        style="width: 140px"
-        @change="handleFilter"
-      >
-        <el-option label="在职" :value="1" />
-        <el-option label="离职" :value="0" />
-      </el-select>
-      <el-button :icon="Search" @click="handleFilter">搜索</el-button>
-    </div>
+      <div class="crud-table-section">
+        <el-table
+          :data="tableData"
+          stripe
+          style="width: 100%"
+          @selection-change="handleSelectionChange"
+        >
+          <el-table-column type="selection" width="48" align="center" />
+          <el-table-column prop="name" label="姓名" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="department" label="所属部门" min-width="130" show-overflow-tooltip />
+          <el-table-column prop="position" label="职位" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.position || '--' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="基础薪资" width="160" align="right">
+            <template #default="{ row }">
+              <span class="salary-cell">{{ formatSalary(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="hireDate" label="入职日期" width="130" />
+          <el-table-column label="状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="getStatusTagType(row.status)" size="small" round>
+                {{ getStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="remark" label="备注" min-width="170" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.remark || '--' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" fixed="right">
+            <template #default="{ row }">
+              <el-button type="primary" link size="small" :icon="Edit" @click="openEditDrawer(row)">
+                编辑
+              </el-button>
+              <el-button type="danger" link size="small" :icon="Delete" @click="handleDelete(row)">
+                删除
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
 
-    <el-table
-      :data="tableData"
-      style="width: 100%"
-      :header-cell-style="{
-        background: '#f6f5f4',
-        color: '#615d59',
-        fontWeight: 600,
-        fontSize: '13px',
-        height: '44px',
-      }"
-      :row-style="{ height: '48px' }"
-      @selection-change="handleSelectionChange"
-    >
-      <el-table-column type="selection" width="48" align="center" />
-      <el-table-column prop="name" label="姓名" min-width="120" show-overflow-tooltip />
-      <el-table-column prop="department" label="所属部门" min-width="130" show-overflow-tooltip />
-      <el-table-column prop="position" label="职位" min-width="140" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ row.position || '--' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="基础薪资" width="160" align="right">
-        <template #default="{ row }">
-          <span class="salary-cell">{{ formatSalary(row) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="hireDate" label="入职日期" width="130" />
-      <el-table-column label="状态" width="100" align="center">
-        <template #default="{ row }">
-          <el-tag :type="getStatusTagType(row.status)" size="small" round>
-            {{ getStatusLabel(row.status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="remark" label="备注" min-width="170" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ row.remark || '--' }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
-        <template #default="{ row }">
-          <el-button type="primary" link size="small" :icon="Edit" @click="openEditDrawer(row)">
-            编辑
-          </el-button>
-          <el-button type="danger" link size="small" :icon="Delete" @click="handleDelete(row)">
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-
-    <div class="pagination-wrapper">
-      <el-pagination
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        :page-sizes="[20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        @current-change="handlePageChange"
-        @size-change="handleSizeChange"
-      />
+      <div class="crud-pagination">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[20, 50, 100]"
+          :total="total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @current-change="handlePageChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
     </div>
 
     <el-drawer
@@ -489,20 +489,17 @@ onMounted(fetchList)
         :model="drawerForm"
         :rules="drawerRules"
         label-position="top"
-        class="drawer-form"
+        class="crud-drawer-form"
       >
         <el-form-item label="员工姓名" prop="name">
           <el-input v-model="drawerForm.name" placeholder="请输入员工姓名" />
         </el-form-item>
-
         <el-form-item label="所属部门" prop="department">
           <el-input v-model="drawerForm.department" placeholder="请输入所属部门" />
         </el-form-item>
-
         <el-form-item label="职位">
           <el-input v-model="drawerForm.position" placeholder="选填，如：招商主管" />
         </el-form-item>
-
         <el-form-item label="基础薪资" prop="salary">
           <el-input
             v-model="drawerForm.salary"
@@ -513,7 +510,6 @@ onMounted(fetchList)
             <template #prefix>¥</template>
           </el-input>
         </el-form-item>
-
         <el-form-item label="入职日期" prop="hireDate">
           <el-date-picker
             v-model="drawerForm.hireDate"
@@ -523,30 +519,20 @@ onMounted(fetchList)
             style="width: 100%"
           />
         </el-form-item>
-
         <el-form-item label="在职状态" prop="status">
           <el-radio-group v-model="drawerForm.status">
             <el-radio :value="1">在职</el-radio>
             <el-radio :value="0">离职</el-radio>
           </el-radio-group>
         </el-form-item>
-
         <el-form-item label="备注">
-          <el-input
-            v-model="drawerForm.remark"
-            type="textarea"
-            :rows="3"
-            placeholder="选填"
-          />
+          <el-input v-model="drawerForm.remark" type="textarea" :rows="3" placeholder="选填" />
         </el-form-item>
       </el-form>
-
       <template #footer>
-        <div class="drawer-footer">
+        <div class="crud-drawer-footer">
           <el-button @click="drawerVisible = false">取消</el-button>
-          <el-button type="primary" :loading="drawerSubmitting" @click="submitDrawer">
-            确认
-          </el-button>
+          <el-button type="primary" :loading="drawerSubmitting" @click="submitDrawer">确认</el-button>
         </div>
       </template>
     </el-drawer>
@@ -556,26 +542,19 @@ onMounted(fetchList)
       title="Excel 批量导入"
       width="560px"
       destroy-on-close
-      :class="{ 'import-error-dialog': importHasError }"
+      :class="{ 'crud-import-error-dialog': importHasError }"
     >
-      <div v-if="!importHasError" class="import-upload-area">
-        <el-upload
-          drag
-          accept=".xlsx,.xls"
-          :auto-upload="true"
-          :show-file-list="false"
-          :http-request="handleImportUpload"
-        >
-          <div class="upload-content">
+      <div v-if="!importHasError" class="crud-import-upload-area">
+        <el-upload drag accept=".xlsx,.xls" :auto-upload="true" :show-file-list="false" :http-request="handleImportUpload">
+          <div class="crud-upload-content">
             <el-icon :size="48" color="#a39e98"><Upload /></el-icon>
-            <p class="upload-text">将 Excel 文件拖拽到此处，或 <em>点击上传</em></p>
-            <p class="upload-hint">仅支持 .xlsx 格式，请先下载导入模板</p>
+            <p class="crud-upload-text">将 Excel 文件拖拽到此处，或 <em>点击上传</em></p>
+            <p class="crud-upload-hint">仅支持 .xlsx 格式，请先下载导入模板</p>
           </div>
         </el-upload>
       </div>
-
-      <div v-else class="import-error-area">
-        <div class="error-header">
+      <div v-else class="crud-import-error-area">
+        <div class="crud-error-header">
           <el-icon color="#e03e3e" :size="20"><Warning /></el-icon>
           <span>导入失败，以下数据存在问题（共 {{ importErrors.length }} 条错误）</span>
         </div>
@@ -583,14 +562,13 @@ onMounted(fetchList)
           <el-table-column prop="row" label="行号" width="80" align="center" />
           <el-table-column prop="error" label="错误原因" />
         </el-table>
-        <div class="error-actions">
+        <div class="crud-error-actions">
           <el-button @click="handleErrorReportDownload">下载 Error_Report.xlsx</el-button>
           <el-button @click="importHasError = false">重新上传</el-button>
           <el-button @click="importDialogVisible = false">关闭</el-button>
         </div>
       </div>
-
-      <div v-if="importLoading" class="import-loading-mask">
+      <div v-if="importLoading" class="crud-import-loading-mask">
         <el-icon class="is-loading" :size="32" color="#0075de"><Loading /></el-icon>
         <span>正在导入...</span>
       </div>
@@ -632,64 +610,7 @@ onMounted(fetchList)
 </template>
 
 <style scoped>
-.employee-manage {
-  padding: 0 4px;
-}
-
-.page-header {
-  margin-bottom: 20px;
-}
-
-.page-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.95);
-  letter-spacing: -0.25px;
-}
-
-.action-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 48px;
-  margin-bottom: 16px;
-}
-
-.action-left,
-.action-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.template-link {
-  font-size: 13px;
-  font-weight: 500;
-  color: #0075de;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.template-link:hover {
-  text-decoration: underline;
-}
-
-.batch-delete-active {
-  color: #e03e3e !important;
-  border-color: #e03e3e !important;
-}
-
-.batch-delete-active:hover {
-  color: #ffffff !important;
-  background-color: #e03e3e !important;
-  border-color: #e03e3e !important;
-}
-
-.filter-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+.crud-page-header {
   margin-bottom: 16px;
 }
 
@@ -699,17 +620,6 @@ onMounted(fetchList)
   color: #0f766e;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'lnum';
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-  padding: 8px 0;
-}
-
-.drawer-form {
-  padding: 0 4px;
 }
 
 .salary-input :deep(.el-input__inner) {
@@ -723,137 +633,5 @@ onMounted(fetchList)
   font-size: 24px;
   font-weight: 700;
   color: rgba(0, 0, 0, 0.45);
-}
-
-.drawer-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.import-upload-area {
-  padding: 20px 0;
-}
-
-.upload-content {
-  padding: 40px 0;
-  text-align: center;
-}
-
-.upload-text {
-  margin-top: 16px;
-  font-size: 14px;
-  color: rgba(0, 0, 0, 0.65);
-}
-
-.upload-text em {
-  color: #0075de;
-  font-style: normal;
-}
-
-.upload-hint {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #a39e98;
-}
-
-.import-error-area {
-  padding: 8px 0;
-}
-
-.error-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #e03e3e;
-  margin-bottom: 16px;
-}
-
-.error-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-  flex-wrap: wrap;
-}
-
-.import-loading-mask {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  z-index: 10;
-  font-size: 14px;
-  color: #615d59;
-}
-
-:deep(.el-table) {
-  --el-table-border-color: rgba(0, 0, 0, 0.06);
-  --el-table-row-hover-bg-color: rgba(0, 117, 222, 0.03);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-:deep(.el-table th.el-table__cell) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-:deep(.el-drawer__header) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  margin-bottom: 0;
-  padding: 16px 24px;
-}
-
-:deep(.el-drawer__title) {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-:deep(.el-drawer__body) {
-  padding: 24px;
-}
-
-:deep(.el-drawer__footer) {
-  border-top: 1px solid rgba(0, 0, 0, 0.1);
-  padding: 16px 24px;
-}
-
-:deep(.el-form-item__label) {
-  font-weight: 500;
-  color: rgba(0, 0, 0, 0.85);
-}
-
-:deep(.el-dialog__header) {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  padding-bottom: 16px;
-}
-
-:deep(.el-dialog__title) {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-:deep(.el-dialog__body) {
-  position: relative;
-}
-
-:deep(.import-error-dialog .el-dialog__header) {
-  border-bottom-color: #e03e3e;
-}
-
-:deep(.el-upload-dragger) {
-  border: 2px dashed rgba(0, 0, 0, 0.15);
-  border-radius: 8px;
-  transition: border-color 0.3s;
-}
-
-:deep(.el-upload-dragger:hover) {
-  border-color: #0075de;
 }
 </style>

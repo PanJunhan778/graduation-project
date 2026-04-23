@@ -176,3 +176,335 @@ body {
   border: none !important;
   box-shadow: var(--ds-shadow-card) !important;
 }
+
+/* ============================================
+   CRUD Page Design System
+   ============================================ */
+
+/* Page Entry Animation */
+@keyframes crudFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.crud-page {
+  animation: crudFadeInUp 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Page Header (inside card) */
+.crud-page-header {
+  padding: 20px 20px 0 20px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+/* Page Title */
+.crud-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.95);
+  letter-spacing: -0.25px;
+  margin-bottom: 4px;
+}
+
+.crud-page-subtitle {
+  font-size: 13px;
+  color: #7a746d;
+  margin-top: 2px;
+  margin-bottom: 0;
+}
+
+/* Main Card Container */
+.crud-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  box-shadow:
+    rgba(0, 0, 0, 0.03) 0px 4px 16px,
+    rgba(0, 0, 0, 0.02) 0px 1px 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.crud-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #0075de 0%, #3d92ff 40%, #213183 100%);
+  z-index: 1;
+}
+
+/* Toolbar */
+.crud-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px 16px;
+  gap: 12px;
+}
+
+.crud-toolbar-left,
+.crud-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.crud-toolbar .template-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ds-color-primary);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.18s ease;
+}
+
+.crud-toolbar .template-link:hover {
+  color: var(--ds-color-primary-active);
+  text-decoration: underline;
+}
+
+/* Batch Delete Active State */
+.crud-toolbar .batch-delete-active {
+  color: var(--ds-color-red) !important;
+  border-color: var(--ds-color-red) !important;
+}
+
+.crud-toolbar .batch-delete-active:hover {
+  color: #ffffff !important;
+  background-color: var(--ds-color-red) !important;
+  border-color: var(--ds-color-red) !important;
+}
+
+/* Filter Bar */
+.crud-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  background: linear-gradient(180deg, rgba(0, 117, 222, 0.018) 0%, rgba(246, 245, 244, 0.5) 100%);
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* Table Section */
+.crud-table-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.crud-table-section :deep(.el-table) {
+  --el-table-border-color: rgba(0, 0, 0, 0.05);
+  --el-table-row-hover-bg-color: rgba(0, 117, 222, 0.035);
+  border-radius: 0;
+}
+
+.crud-table-section :deep(.el-table th.el-table__cell) {
+  background: linear-gradient(180deg, #f8f7f6 0%, #f3f2f0 100%);
+  color: #555049;
+  font-weight: 600;
+  font-size: 13px;
+  height: 44px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.crud-table-section :deep(.el-table .el-table__row) {
+  transition: background 0.2s ease;
+}
+
+.crud-table-section :deep(.el-table .el-table__row td:first-child) {
+  border-left: 3px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.crud-table-section :deep(.el-table .el-table__row:hover td:first-child) {
+  border-left-color: var(--ds-color-primary);
+}
+
+.crud-table-section :deep(.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell) {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.crud-table-section :deep(.el-table .el-table__body tr td.el-table__cell) {
+  height: 50px;
+}
+
+/* Pagination */
+.crud-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 20px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  background: rgba(246, 245, 244, 0.3);
+}
+
+/* ============================================
+   Global Element Plus Component Overrides
+   ============================================ */
+
+/* Dialog */
+.el-dialog {
+  border-radius: 14px !important;
+  overflow: hidden;
+}
+
+.el-dialog__header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  padding: 18px 24px 16px !important;
+  margin-right: 0 !important;
+  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
+}
+
+.el-dialog__title {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: rgba(0, 0, 0, 0.92) !important;
+}
+
+.el-dialog__body {
+  padding: 24px !important;
+  position: relative;
+}
+
+.el-dialog__footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+  padding: 14px 24px !important;
+  background: rgba(246, 245, 244, 0.3);
+}
+
+/* Drawer */
+.el-drawer {
+  border-radius: 16px 0 0 16px !important;
+}
+
+.el-drawer__header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  margin-bottom: 0 !important;
+  padding: 18px 24px !important;
+  background: linear-gradient(180deg, #fafafa 0%, #ffffff 100%);
+}
+
+.el-drawer__title {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: rgba(0, 0, 0, 0.92) !important;
+}
+
+.el-drawer__body {
+  padding: 24px !important;
+}
+
+.el-drawer__footer {
+  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+  padding: 14px 24px !important;
+  background: rgba(246, 245, 244, 0.3);
+}
+
+/* Form Item Labels (global) */
+.el-form-item__label {
+  font-weight: 500 !important;
+  color: rgba(0, 0, 0, 0.82) !important;
+}
+
+/* Drawer / Dialog Form */
+.crud-drawer-form {
+  padding: 0 4px;
+}
+
+.crud-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* Import Dialog */
+.crud-import-upload-area {
+  padding: 20px 0;
+}
+
+.crud-upload-content {
+  padding: 40px 0;
+  text-align: center;
+}
+
+.crud-upload-text {
+  margin-top: 16px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.crud-upload-text em {
+  color: var(--ds-color-primary);
+  font-style: normal;
+}
+
+.crud-upload-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ds-color-text-muted);
+}
+
+.crud-import-error-area {
+  padding: 8px 0;
+}
+
+.crud-error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ds-color-red);
+  margin-bottom: 16px;
+}
+
+.crud-error-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.crud-import-loading-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  z-index: 10;
+  font-size: 14px;
+  color: #615d59;
+  border-radius: 14px;
+}
+
+.crud-import-error-dialog .el-dialog__header {
+  border-bottom-color: var(--ds-color-red) !important;
+}
+
+/* Upload Dragger Enhancement */
+.el-upload-dragger {
+  border: 2px dashed rgba(0, 0, 0, 0.12) !important;
+  border-radius: 10px !important;
+  transition: border-color 0.25s ease, background 0.25s ease !important;
+}
+
+.el-upload-dragger:hover {
+  border-color: var(--ds-color-primary) !important;
+  background: rgba(0, 117, 222, 0.02) !important;
+}
