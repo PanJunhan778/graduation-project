@@ -771,9 +771,9 @@ function syncCompactHistoryMode(matches: boolean) {
         </div>
 
         <div class="chat-pane__actions">
-          <el-button
+          <button
             v-if="showToolbarHistoryToggle"
-            circle
+            class="action-btn"
             :title="historyToggleTitle"
             @click="toggleHistoryRail"
           >
@@ -781,12 +781,12 @@ function syncCompactHistoryMode(matches: boolean) {
               <Expand v-if="isCompactScreen ? !isCompactHistoryOpen : isHistoryCollapsed" />
               <Fold v-else />
             </el-icon>
-          </el-button>
+          </button>
 
-          <el-button :loading="loadingSessions" title="刷新会话列表" @click="handleRefreshSessions">
-            <el-icon><RefreshRight /></el-icon>
+          <button class="action-btn" :disabled="loadingSessions" title="刷新会话列表" @click="handleRefreshSessions">
+            <el-icon :class="{ 'is-loading': loadingSessions }"><RefreshRight /></el-icon>
             <span>刷新</span>
-          </el-button>
+          </button>
         </div>
       </header>
 
@@ -931,15 +931,27 @@ function syncCompactHistoryMode(matches: boolean) {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-radius: 32px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(251, 250, 248, 0.98) 100%);
+  border-radius: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   box-shadow:
-    0 20px 46px rgba(15, 23, 42, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+    rgba(0, 0, 0, 0.04) 0px 8px 32px,
+    rgba(0, 0, 0, 0.02) 0px 2px 10px;
   isolation: isolate;
   transition: grid-template-columns 0.24s ease;
+}
+
+.ai-chat-shell::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #0075de 0%, #3d92ff 40%, #213183 100%);
+  z-index: 10;
 }
 
 .ai-chat-shell--history-collapsed {
@@ -964,9 +976,7 @@ function syncCompactHistoryMode(matches: boolean) {
   min-height: 0;
   padding: 18px 14px 14px;
   box-sizing: border-box;
-  border-right: 1px solid rgba(15, 23, 42, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(247, 245, 241, 0.92) 100%);
+  background: rgba(247, 248, 250, 0.4);
 }
 
 .history-pane--collapsed {
@@ -995,6 +1005,12 @@ function syncCompactHistoryMode(matches: boolean) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.history-pane--collapsed .history-pane__header {
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }
 
 .history-pane__heading h2 {
@@ -1232,13 +1248,12 @@ function syncCompactHistoryMode(matches: boolean) {
 }
 
 .chat-pane {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background:
-    radial-gradient(circle at top, rgba(15, 98, 214, 0.06), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 251, 249, 0.98) 100%);
+  background: transparent;
 }
 
 .chat-pane__toolbar {
@@ -1247,7 +1262,7 @@ function syncCompactHistoryMode(matches: boolean) {
   justify-content: space-between;
   gap: 18px;
   padding: 18px 24px 14px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .chat-pane__title-block,
@@ -1292,13 +1307,40 @@ function syncCompactHistoryMode(matches: boolean) {
 .chat-pane__actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(15, 23, 42, 0.65);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(15, 23, 42, 0.95);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-pane__messages {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 26px 24px 18px;
+  padding: 26px 24px 180px;
   box-sizing: border-box;
   overscroll-behavior: contain;
 }
@@ -1399,6 +1441,7 @@ function syncCompactHistoryMode(matches: boolean) {
   display: flex;
   width: 100%;
   margin-bottom: 22px;
+  animation: messageSpringFadeUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1) both;
 }
 
 .message-row:last-child {
@@ -1434,14 +1477,14 @@ function syncCompactHistoryMode(matches: boolean) {
   max-width: 100%;
   padding: 0;
   border-radius: 24px 24px 24px 10px;
-  background: rgba(246, 247, 249, 0.92);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: transparent;
+  border: none;
   color: rgba(15, 23, 42, 0.9);
   overflow: hidden;
 }
 
 .assistant-content {
-  padding: 18px 20px 18px 22px;
+  padding: 12px 0;
 }
 
 .assistant-thinking {
@@ -1459,17 +1502,59 @@ function syncCompactHistoryMode(matches: boolean) {
   width: 100%;
   max-width: 100%;
   overflow-x: auto;
-  margin: 12px 0;
+  margin: 16px 0;
   border-collapse: collapse;
   font-size: 13px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.assistant-content :deep(th) {
+  background: rgba(0, 0, 0, 0.03);
+  font-weight: 600;
 }
 
 .assistant-content :deep(th),
 .assistant-content :deep(td) {
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 10px 14px;
   text-align: left;
   white-space: nowrap;
+}
+
+.assistant-content :deep(blockquote) {
+  margin: 14px 0;
+  padding: 12px 18px;
+  border-left: 4px solid #0075de;
+  background: rgba(0, 117, 222, 0.04);
+  border-radius: 4px 8px 8px 4px;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.assistant-content :deep(pre) {
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 16px;
+  border-radius: 12px;
+  overflow-x: auto;
+  margin: 14px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+}
+
+.assistant-content :deep(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 0.9em;
+  color: #d946ef;
+}
+
+.assistant-content :deep(pre code) {
+  background: transparent;
+  padding: 0;
+  color: inherit;
 }
 
 .assistant-content :deep(p),
@@ -1503,20 +1588,32 @@ function syncCompactHistoryMode(matches: boolean) {
 
 .message-bubble--user {
   border-radius: 22px 22px 8px 22px;
-  background: linear-gradient(135deg, #2b7fff 0%, #0f62d6 100%);
+  background: linear-gradient(135deg, #4292ff 0%, #005bab 100%);
   color: #ffffff;
-  box-shadow: 0 12px 28px rgba(15, 98, 214, 0.2);
+  box-shadow: 0 8px 24px rgba(15, 98, 214, 0.25);
   white-space: pre-wrap;
 }
 
 .hitl-card {
+  position: relative;
+  overflow: hidden;
   width: min(100%, 860px);
-  border: 1px solid rgba(221, 91, 0, 0.2);
+  border: 1px solid rgba(221, 91, 0, 0.25);
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.92);
-  padding: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 20px 20px 20px 24px;
   box-sizing: border-box;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 16px 32px rgba(221, 91, 0, 0.08);
+}
+
+.hitl-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: #dd5b00;
 }
 
 .hitl-card__header,
@@ -1585,43 +1682,60 @@ function syncCompactHistoryMode(matches: boolean) {
 .prompt-chip {
   border: none;
   border-radius: 999px;
-  padding: 9px 14px;
-  background: rgba(255, 255, 255, 0.92);
+  padding: 9px 16px;
+  background: rgba(255, 255, 255, 0.95);
   color: rgba(15, 23, 42, 0.84);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
   transition:
-    transform 0.18s ease,
-    background-color 0.18s ease,
-    color 0.18s ease;
+    transform 0.24s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+    background-color 0.24s ease,
+    color 0.24s ease,
+    box-shadow 0.24s ease;
 }
 
 .prompt-chip:hover {
-  transform: translateY(-1px);
-  background: #eaf3ff;
+  transform: translateY(-2px) scale(1.02);
+  background: #ffffff;
   color: #0f62d6;
+  box-shadow: 0 8px 20px rgba(15, 98, 214, 0.12), inset 0 0 0 1px rgba(15, 98, 214, 0.2);
 }
 
 .chat-pane__composer {
-  padding: 16px 22px 20px;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.56) 0%, rgba(255, 255, 255, 0.94) 30%);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  pointer-events: none;
+  padding: 40px 22px 20px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.8) 30%, rgba(255, 255, 255, 1) 60%);
 }
 
 .chat-composer__surface {
+  pointer-events: auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: end;
   padding: 14px 16px 12px;
-  border-radius: 26px;
-  background: rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   box-shadow:
-    inset 0 0 0 1px rgba(15, 23, 42, 0.08),
-    0 10px 24px rgba(15, 23, 42, 0.05);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.4),
+    0 12px 32px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.chat-composer__surface:focus-within {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.6),
+    0 16px 40px rgba(0, 0, 0, 0.12);
 }
 
 .chat-composer__input {
@@ -1661,6 +1775,17 @@ function syncCompactHistoryMode(matches: boolean) {
 
 .chat-composer__surface :deep(.el-textarea__inner::placeholder) {
   color: #9d9791;
+}
+
+@keyframes messageSpringFadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes thinkingPulse {

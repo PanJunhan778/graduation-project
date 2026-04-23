@@ -148,10 +148,12 @@ function getRoleName(role?: string) {
 <template>
   <aside class="sidebar" :class="{ collapsed: props.collapsed }">
     <div class="sidebar-header">
-      <div class="brand-mark">{{ props.collapsed ? 'E' : 'ERP' }}</div>
+      <div class="brand-mark">
+        <div class="geometric-logo"></div>
+      </div>
       <div v-if="!props.collapsed" class="brand-copy">
-        <strong>Enterprise Resource Planning</strong>
-        <span>智能轻量化企业管理系统</span>
+        <strong>数智引航</strong>
+        <span>Smart Management</span>
       </div>
     </div>
 
@@ -240,35 +242,76 @@ function getRoleName(role?: string) {
 }
 
 .brand-mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 16px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #1678e5 0%, #3d92ff 100%);
-  color: #ffffff;
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  box-shadow: 0 16px 28px rgba(22, 120, 229, 0.22);
   flex-shrink: 0;
+}
+
+.geometric-logo {
+  position: relative;
+  width: 24px;
+  height: 24px;
+}
+
+.geometric-logo::before,
+.geometric-logo::after {
+  content: '';
+  position: absolute;
+  border-radius: 6px;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.geometric-logo::before {
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg, #005bab 0%, #0075de 100%);
+  z-index: 2;
+  box-shadow: 0 4px 12px rgba(0, 117, 222, 0.2);
+}
+
+.geometric-logo::after {
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg, #0075de 0%, #4292ff 100%);
+  opacity: 0.85;
+  z-index: 1;
+}
+
+.sidebar-header:hover .geometric-logo::before {
+  transform: translate(2px, 2px) scale(1.05);
+}
+
+.sidebar-header:hover .geometric-logo::after {
+  transform: translate(-2px, -2px) scale(1.05);
 }
 
 .brand-copy {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .brand-copy strong {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   color: rgba(15, 23, 42, 0.94);
 }
 
 .brand-copy span {
-  font-size: 12px;
-  color: #667085;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #8c97a8;
+  text-transform: uppercase;
 }
 
 .sidebar-nav {
