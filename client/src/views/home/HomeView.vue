@@ -856,7 +856,15 @@ function toNumber(value: number | string | undefined | null) {
                 <span class="eyebrow">AI 经营速记</span>
                 <h2>近期两点观察</h2>
               </div>
-              <span v-if="aiSummaryGeneratedText" class="ai-generated-at">{{ aiSummaryGeneratedText }}</span>
+              <div class="ai-brief__actions">
+                <span v-if="aiSummaryGeneratedText" class="ai-generated-at">{{ aiSummaryGeneratedText }}</span>
+                <button type="button" class="ai-brief__cta" @click="navigateTo('/ai-chat')">
+                  <span class="ai-brief__cta-main">
+                    <span class="ai-brief__cta-label">继续问 AI</span>
+                    <el-icon class="ai-brief__cta-icon" :size="18"><ChatDotRound /></el-icon>
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div class="ai-brief__body">
@@ -887,16 +895,6 @@ function toNumber(value: number | string | undefined | null) {
                 <div v-else class="ai-empty">
                   <p>{{ aiSummaryEmptyText }}</p>
                 </div>
-              </div>
-
-              <div class="ai-brief__action">
-                <button type="button" class="ai-brief__cta" @click="navigateTo('/ai-chat')">
-                  <span class="ai-brief__cta-badge">AI 助理</span>
-                  <span class="ai-brief__cta-main">
-                    <span class="ai-brief__cta-label">继续问 AI</span>
-                    <el-icon class="ai-brief__cta-icon" :size="18"><ChatDotRound /></el-icon>
-                  </span>
-                </button>
               </div>
             </div>
           </aside>
@@ -1184,6 +1182,12 @@ function toNumber(value: number | string | undefined | null) {
 
 <style scoped>
 .home-view {
+  --home-card-bg: rgba(255, 255, 255, 0.92);
+  --home-card-border: rgba(15, 23, 42, 0.07);
+  --home-card-border-strong: rgba(15, 23, 42, 0.1);
+  --home-card-radius: 16px;
+  --home-card-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+  --home-card-shadow-hover: 0 12px 30px rgba(15, 23, 42, 0.075);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1194,12 +1198,11 @@ function toNumber(value: number | string | undefined | null) {
 .welcome-card {
   padding: 16px 24px;
   background:
-    radial-gradient(circle at top right, rgba(0, 117, 222, 0.12), transparent 40%),
-    radial-gradient(circle at bottom left, rgba(66, 146, 255, 0.06), transparent 30%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 251, 255, 0.92) 52%, rgba(250, 252, 255, 0.9) 100%);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.04);
+    radial-gradient(circle at top right, rgba(0, 117, 222, 0.08), transparent 40%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.97) 0%, rgba(248, 251, 255, 0.93) 100%);
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 18px;
+  box-shadow: var(--home-card-shadow);
 }
 
 .welcome-top,
@@ -1260,7 +1263,7 @@ function toNumber(value: number | string | undefined | null) {
 .state-panel h2,
 .pdf-company-pane h2 {
   color: rgba(15, 23, 42, 0.96);
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .company-pane {
@@ -1277,10 +1280,8 @@ function toNumber(value: number | string | undefined | null) {
   margin-top: 10px;
   font-size: 34px;
   font-weight: 900;
-  background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: -0.02em;
+  color: #111827;
+  letter-spacing: 0;
 }
 
 .company-inline-meta {
@@ -1327,7 +1328,7 @@ function toNumber(value: number | string | undefined | null) {
   background: rgba(255, 255, 255, 0.78);
   color: rgba(15, 23, 42, 0.82);
   font-weight: 700;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.045);
 }
 
 .company-export-button.el-button:hover,
@@ -1393,7 +1394,31 @@ function toNumber(value: number | string | undefined | null) {
   color: rgba(15, 23, 42, 0.94);
 }
 
-.ai-brief,
+.ai-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: var(--home-card-radius);
+  background:
+    radial-gradient(circle at top left, rgba(42, 157, 153, 0.08), transparent 38%),
+    rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(42, 157, 153, 0.13);
+  box-shadow: none;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.ai-brief:hover {
+  border-color: rgba(42, 157, 153, 0.2);
+  background:
+    radial-gradient(circle at top left, rgba(42, 157, 153, 0.1), transparent 38%),
+    rgba(255, 255, 255, 0.76);
+  box-shadow: 0 10px 24px rgba(42, 157, 153, 0.06);
+}
+
 .pdf-ai-card {
   display: flex;
   flex-direction: column;
@@ -1405,18 +1430,22 @@ function toNumber(value: number | string | undefined | null) {
     linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(245, 250, 255, 0.88));
   border: 1px solid rgba(42, 157, 153, 0.18);
   box-shadow: 0 8px 30px rgba(42, 157, 153, 0.06);
-  transition: box-shadow 0.4s ease;
-}
-
-.ai-brief:hover {
-  box-shadow: 0 12px 40px rgba(42, 157, 153, 0.12);
 }
 
 .ai-brief__top {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   align-items: flex-start;
+}
+
+.ai-brief__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
 }
 
 .ai-brief__top h2,
@@ -1425,7 +1454,7 @@ function toNumber(value: number | string | undefined | null) {
   font-size: 18px;
   font-weight: 700;
   color: rgba(15, 23, 42, 0.96);
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .ai-generated-at {
@@ -1433,17 +1462,14 @@ function toNumber(value: number | string | undefined | null) {
   align-items: center;
   padding: 5px 9px;
   border-radius: 999px;
-  background: rgba(42, 157, 153, 0.1);
+  background: rgba(42, 157, 153, 0.08);
   font-size: 11px;
   color: #5f8f8b;
   font-weight: 700;
 }
 
 .ai-brief__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: stretch;
+  display: block;
   min-height: 0;
 }
 
@@ -1464,11 +1490,15 @@ function toNumber(value: number | string | undefined | null) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
-  align-items: flex-start;
-  padding: 9px 10px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.74);
-  border: 1px solid rgba(42, 157, 153, 0.1);
+  align-items: center;
+  padding: 8px 0;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid rgba(42, 157, 153, 0.11);
+}
+
+.ai-summary-line:last-child {
+  border-bottom: none;
 }
 
 .ai-summary-line__index {
@@ -1479,7 +1509,7 @@ function toNumber(value: number | string | undefined | null) {
   height: 22px;
   padding: 0 8px;
   border-radius: 999px;
-  background: rgba(42, 157, 153, 0.12);
+  background: rgba(42, 157, 153, 0.1);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -1503,26 +1533,18 @@ function toNumber(value: number | string | undefined | null) {
   color: #667085;
 }
 
-.ai-brief__action {
-  display: flex;
-  min-width: 148px;
-  align-self: stretch;
-}
-
 .ai-brief__cta {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
+  min-height: 40px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   justify-content: center;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid rgba(42, 157, 153, 0.1);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.74);
-  color: rgba(15, 23, 42, 0.92);
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 9px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: rgba(42, 157, 153, 0.08);
+  color: #176f6b;
   cursor: pointer;
   transition:
     transform 0.2s ease,
@@ -1534,43 +1556,31 @@ function toNumber(value: number | string | undefined | null) {
 .ai-brief__cta:hover,
 .ai-brief__cta:focus-visible {
   transform: translateY(-1px);
-  border-color: rgba(42, 157, 153, 0.22);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 12px 24px rgba(42, 157, 153, 0.12);
+  border-color: rgba(42, 157, 153, 0.16);
+  background: rgba(42, 157, 153, 0.12);
+  box-shadow: 0 8px 18px rgba(42, 157, 153, 0.08);
   outline: none;
 }
 
-.ai-brief__cta-badge {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 999px;
-  background: rgba(42, 157, 153, 0.12);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: #2a7f7b;
-}
-
 .ai-brief__cta-label {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 800;
   line-height: 1.35;
   text-align: left;
 }
 
 .ai-brief__cta-main {
-  width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .ai-brief__cta-icon {
   flex: none;
-  color: #2a9d99;
+  color: currentColor;
+  opacity: 0.82;
 }
 
 .kpi-grid {
@@ -1583,27 +1593,22 @@ function toNumber(value: number | string | undefined | null) {
   position: relative;
   padding: 18px 20px 20px;
   overflow: hidden;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
-}
-
-.kpi-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 100%;
-  opacity: 0;
-  transition: opacity 0.3s ease;
+  border-color: var(--home-card-border);
+  border-radius: var(--home-card-radius);
+  background: var(--home-card-bg);
+  box-shadow: var(--home-card-shadow);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
 }
 
 .kpi-card:hover {
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
-}
-
-.kpi-card:hover::before {
-  opacity: 1;
+  transform: translateY(-2px);
+  border-color: var(--home-card-border-strong);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--home-card-shadow-hover);
 }
 
 .kpi-top {
@@ -1618,14 +1623,14 @@ function toNumber(value: number | string | undefined | null) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #f5f7fb;
+  background: rgba(15, 23, 42, 0.04);
   color: #667085;
 }
 
 .kpi-badge {
   padding: 3px 8px;
   font-size: 11px;
-  background: #f5f7fb;
+  background: rgba(15, 23, 42, 0.04);
   color: #667085;
 }
 
@@ -1641,9 +1646,8 @@ function toNumber(value: number | string | undefined | null) {
   font-size: 26px;
   font-weight: 900;
   color: #1e293b;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .kpi-hint {
@@ -1654,48 +1658,32 @@ function toNumber(value: number | string | undefined | null) {
 
 .tone-income .kpi-icon,
 .tone-income .kpi-badge {
-  background: rgba(20, 115, 230, 0.1);
+  background: rgba(20, 115, 230, 0.075);
   color: #1473e6;
-}
-
-.tone-income.kpi-card::before {
-  background: #1473e6;
 }
 
 .tone-expense .kpi-icon,
 .tone-expense .kpi-badge {
-  background: rgba(221, 90, 59, 0.1);
+  background: rgba(221, 90, 59, 0.075);
   color: #dd5a3b;
-}
-
-.tone-expense.kpi-card::before {
-  background: #dd5a3b;
 }
 
 .tone-warning .kpi-icon,
 .tone-warning .kpi-badge,
 .is-unpaid {
-  background: rgba(221, 91, 0, 0.1);
+  background: rgba(221, 91, 0, 0.075);
   color: #dd5b00;
-}
-
-.tone-warning.kpi-card::before {
-  background: #dd5b00;
 }
 
 .tone-neutral .kpi-icon,
 .tone-neutral .kpi-badge,
 .is-paid {
-  background: rgba(102, 112, 133, 0.1);
+  background: rgba(102, 112, 133, 0.075);
   color: #667085;
 }
 
-.tone-neutral.kpi-card::before {
-  background: #667085;
-}
-
 .is-exempt {
-  background: rgba(42, 157, 153, 0.12);
+  background: rgba(42, 157, 153, 0.09);
   color: #2a9d99;
 }
 
@@ -1728,7 +1716,14 @@ function toNumber(value: number | string | undefined | null) {
 .chart-panel,
 .timeline-panel,
 .state-panel,
-.panel-card,
+.panel-card {
+  padding: 18px;
+  border-color: var(--home-card-border);
+  border-radius: var(--home-card-radius);
+  background: var(--home-card-bg);
+  box-shadow: var(--home-card-shadow);
+}
+
 .pdf-card,
 .pdf-welcome-card {
   padding: 18px;
@@ -1750,9 +1745,10 @@ function toNumber(value: number | string | undefined | null) {
 .dashboard-entry-card {
   min-height: 84px;
   padding: 12px 18px 12px 20px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 24px;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(246, 249, 252, 0.92));
+  border: 1px solid var(--home-card-border);
+  border-radius: var(--home-card-radius);
+  background: var(--home-card-bg);
+  box-shadow: var(--home-card-shadow);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1769,10 +1765,10 @@ function toNumber(value: number | string | undefined | null) {
 
 .dashboard-entry-card:hover,
 .dashboard-entry-card:focus-visible {
-  transform: translateY(-1px);
-  border-color: rgba(20, 115, 230, 0.16);
-  background: linear-gradient(165deg, rgba(255, 255, 255, 1), rgba(244, 249, 255, 0.96));
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+  transform: translateY(-2px);
+  border-color: rgba(20, 115, 230, 0.14);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--home-card-shadow-hover);
   outline: none;
 }
 
@@ -1791,7 +1787,7 @@ function toNumber(value: number | string | undefined | null) {
   align-items: center;
   justify-content: center;
   flex: none;
-  background: rgba(20, 115, 230, 0.1);
+  background: rgba(20, 115, 230, 0.075);
   color: #1473e6;
 }
 
@@ -2122,7 +2118,7 @@ function toNumber(value: number | string | undefined | null) {
   margin-top: 8px;
   font-size: 28px;
   font-weight: 800;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
   color: rgba(15, 23, 42, 0.96);
 }
 
@@ -2324,14 +2320,8 @@ function toNumber(value: number | string | undefined | null) {
     grid-template-columns: 1fr;
   }
 
-  .ai-brief__body {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
-  .ai-brief__action {
-    justify-content: flex-start;
-    min-width: 0;
+  .ai-brief__actions {
+    justify-content: flex-end;
   }
 }
 
@@ -2341,7 +2331,7 @@ function toNumber(value: number | string | undefined | null) {
   }
 
   .welcome-card {
-    padding: 18px 20px 18px;
+    padding: 12px 20px 16px;
   }
 
   .welcome-grid {
@@ -2457,6 +2447,14 @@ function toNumber(value: number | string | undefined | null) {
     padding: 20px;
   }
 
+  .ai-brief__top {
+    flex-direction: column;
+  }
+
+  .ai-brief__actions {
+    justify-content: flex-start;
+  }
+
   .company-pane h1 {
     font-size: 30px;
   }
@@ -2467,9 +2465,6 @@ function toNumber(value: number | string | undefined | null) {
     grid-template-columns: 1fr;
   }
 
-  .ai-brief__action {
-    align-items: flex-start;
-  }
 }
 </style>
 
