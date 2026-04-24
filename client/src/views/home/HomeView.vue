@@ -1192,13 +1192,13 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .welcome-card {
-  padding: 22px 24px 24px;
+  padding: 16px 24px;
   background:
     radial-gradient(circle at top right, rgba(0, 117, 222, 0.12), transparent 40%),
     radial-gradient(circle at bottom left, rgba(66, 146, 255, 0.06), transparent 30%),
     linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 251, 255, 0.92) 52%, rgba(250, 252, 255, 0.9) 100%);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(15, 23, 42, 0.06);
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.04);
 }
 
@@ -2341,11 +2341,11 @@ function toNumber(value: number | string | undefined | null) {
   }
 
   .welcome-card {
-    padding: 18px 20px 20px;
+    padding: 18px 20px 18px;
   }
 
   .welcome-grid {
-    margin-top: 14px;
+    margin-top: 0;
     gap: 14px;
   }
 
