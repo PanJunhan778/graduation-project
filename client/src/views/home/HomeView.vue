@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
@@ -19,10 +19,10 @@ import {
 import { use, type EChartsType } from 'echarts/core'
 import { LineChart, PieChart } from 'echarts/charts'
 import { CanvasRenderer } from 'echarts/renderers'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { GridComponent, LegendComponent, TooltipComponent, TitleComponent, GraphicComponent } from 'echarts/components'
 import { init } from 'echarts/core'
 
-use([LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
+use([LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, TitleComponent, GraphicComponent, CanvasRenderer])
 
 const userStore = useUserStore()
 const router = useRouter()
@@ -164,6 +164,7 @@ const kpiCards = computed(() => {
 
 const chartMonths = computed(() => dashboard.value?.monthlyTrend ?? [])
 const departmentHeadcount = computed(() => dashboard.value?.departmentHeadcount ?? [])
+const totalHeadcount = computed(() => departmentHeadcount.value.reduce((acc, item) => acc + item.employeeCount, 0))
 const taxCalendar = computed(() => dashboard.value?.taxCalendar ?? [])
 const exportTaxCalendar = computed(() => taxCalendar.value.slice(0, 4))
 const remainingTaxCalendarCount = computed(() => Math.max(taxCalendar.value.length - exportTaxCalendar.value.length, 0))
@@ -464,38 +465,18 @@ function renderTrendChart() {
       borderWidth: 1,
       textStyle: { color: 'rgba(0,0,0,0.85)' },
       extraCssText: 'box-shadow: rgba(0,0,0,0.08) 0 12px 36px; border-radius: 12px;',
-      position(
-        point: [number, number],
-        _params: unknown,
-        _dom: HTMLElement,
-        _rect: unknown,
-        size: { contentSize: [number, number]; viewSize: [number, number] },
-      ) {
-        const [x, y] = point
-        const [contentWidth, contentHeight] = size.contentSize
-        const [viewWidth, viewHeight] = size.viewSize
-        const minLeft = 12
-        const maxLeft = Math.max(viewWidth - contentWidth - 12, minLeft)
-        const minTop = 12
-        const maxTop = Math.max(viewHeight - contentHeight - 12, minTop)
-        let left = x + 18
-
-        if (left > maxLeft) {
-          left = Math.max(x - contentWidth - 18, minLeft)
-        }
-
-        return [
-          left,
-          Math.min(Math.max(y - contentHeight / 2, minTop), maxTop),
-        ]
-      },
+      confine: true,
       formatter(params: Array<{ axisValue: string; marker: string; seriesName: string; value: number }>) {
         const title = formatMonthTitle(params[0]?.axisValue || '')
-        const lines = params.map((item) =>
-          `${item.marker}${item.seriesName}<span style="float:right;margin-left:18px;font-weight:600;">${formatCurrency(item.value)}</span>`,
+        const lines = params.map(
+          (item) =>
+            `<div style="margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+              <span>${item.marker}${item.seriesName}</span>
+              <span style="margin-left: 24px; font-weight: 700;">${formatCurrency(item.value)}</span>
+            </div>`,
         )
-        return `<div style="min-width: 180px;">
-          <div style="font-weight:700;margin-bottom:8px;">${title}</div>
+        return `<div style="min-width: 200px; padding: 4px;">
+          <div style="font-weight:800; margin-bottom: 12px; color: #1e293b; font-size: 14px;">${title}</div>
           ${lines.join('')}
         </div>`
       },
@@ -551,8 +532,18 @@ function renderTrendChart() {
         smooth: false,
         showSymbol: false,
         data: chartMonths.value.map((point) => point.income),
-        lineStyle: { width: 3 },
+        lineStyle: { width: 3.5, cap: 'round' },
         itemStyle: { color: '#1473e6' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(20, 115, 230, 0.16)' },
+              { offset: 1, color: 'rgba(20, 115, 230, 0)' },
+            ],
+          },
+        },
       },
       {
         name: '支出',
@@ -560,8 +551,18 @@ function renderTrendChart() {
         smooth: false,
         showSymbol: false,
         data: chartMonths.value.map((point) => point.expense),
-        lineStyle: { width: 3 },
+        lineStyle: { width: 3.5, cap: 'round' },
         itemStyle: { color: '#dd5a3b' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(221, 90, 59, 0.12)' },
+              { offset: 1, color: 'rgba(221, 90, 59, 0)' },
+            ],
+          },
+        },
       },
       {
         name: '净利润',
@@ -569,8 +570,18 @@ function renderTrendChart() {
         smooth: false,
         showSymbol: false,
         data: chartMonths.value.map((point) => point.profit),
-        lineStyle: { width: 3 },
+        lineStyle: { width: 4, cap: 'round' },
         itemStyle: { color: '#2a9d99' },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(42, 157, 153, 0.12)' },
+              { offset: 1, color: 'rgba(42, 157, 153, 0)' },
+            ],
+          },
+        },
       },
     ],
   })
@@ -617,18 +628,39 @@ function renderDepartmentChart() {
       {
         name: '部门人数',
         type: 'pie',
-        radius: '72%',
-        center: ['33%', '50%'],
-        avoidLabelOverlap: true,
+        radius: ['48%', '75%'],
+        center: ['35%', '50%'],
+        avoidLabelOverlap: false,
         itemStyle: {
           borderColor: '#ffffff',
           borderWidth: 3,
         },
-        label: { show: false },
+        label: {
+          show: true,
+          position: 'center',
+          formatter: `{total|${totalHeadcount.value}}\n{sub|总人数}`,
+          rich: {
+            total: {
+              fontSize: 32,
+              fontWeight: 900,
+              color: '#1e293b',
+              padding: [0, 0, 8, 0],
+            },
+            sub: {
+              fontSize: 13,
+              fontWeight: 'normal',
+              color: '#64748b',
+            },
+          },
+        },
         labelLine: { show: false },
         emphasis: {
           scale: true,
-          label: { show: false },
+          label: {
+            show: true,
+            fontSize: 32,
+            fontWeight: 900,
+          },
         },
         data: departmentHeadcount.value.map((item) => ({
           name: item.department,
@@ -1160,10 +1192,14 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .welcome-card {
-  padding: 20px 22px 22px;
+  padding: 22px 24px 24px;
   background:
-    radial-gradient(circle at top right, rgba(0, 117, 222, 0.14), transparent 34%),
-    linear-gradient(145deg, #ffffff 0%, #f5f9ff 52%, #f7f4f1 100%);
+    radial-gradient(circle at top right, rgba(0, 117, 222, 0.12), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(66, 146, 255, 0.06), transparent 30%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 251, 255, 0.92) 52%, rgba(250, 252, 255, 0.9) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.04);
 }
 
 .welcome-top,
@@ -1238,9 +1274,13 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .company-pane h1 {
-  margin-top: 8px;
-  font-size: 32px;
-  font-weight: 800;
+  margin-top: 10px;
+  font-size: 34px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
 }
 
 .company-inline-meta {
@@ -1362,8 +1402,14 @@ function toNumber(value: number | string | undefined | null) {
   border-radius: 24px;
   background:
     radial-gradient(circle at top left, rgba(42, 157, 153, 0.14), transparent 36%),
-    linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(245, 250, 255, 0.84));
-  border: 1px solid rgba(42, 157, 153, 0.14);
+    linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(245, 250, 255, 0.88));
+  border: 1px solid rgba(42, 157, 153, 0.18);
+  box-shadow: 0 8px 30px rgba(42, 157, 153, 0.06);
+  transition: box-shadow 0.4s ease;
+}
+
+.ai-brief:hover {
+  box-shadow: 0 12px 40px rgba(42, 157, 153, 0.12);
 }
 
 .ai-brief__top {
@@ -1534,7 +1580,30 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .kpi-card {
-  padding: 14px 16px 16px;
+  position: relative;
+  padding: 18px 20px 20px;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+}
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.kpi-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.08);
+}
+
+.kpi-card:hover::before {
+  opacity: 1;
 }
 
 .kpi-top {
@@ -1568,12 +1637,13 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .kpi-value {
-  margin-top: 8px;
-  font-size: 24px;
-  font-weight: 800;
-  color: rgba(15, 23, 42, 0.96);
-  letter-spacing: -0.05em;
+  margin-top: 10px;
+  font-size: 26px;
+  font-weight: 900;
+  color: #1e293b;
+  letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .kpi-hint {
@@ -1584,28 +1654,44 @@ function toNumber(value: number | string | undefined | null) {
 
 .tone-income .kpi-icon,
 .tone-income .kpi-badge {
-  background: rgba(20, 115, 230, 0.12);
+  background: rgba(20, 115, 230, 0.1);
   color: #1473e6;
+}
+
+.tone-income.kpi-card::before {
+  background: #1473e6;
 }
 
 .tone-expense .kpi-icon,
 .tone-expense .kpi-badge {
-  background: rgba(221, 90, 59, 0.12);
+  background: rgba(221, 90, 59, 0.1);
   color: #dd5a3b;
+}
+
+.tone-expense.kpi-card::before {
+  background: #dd5a3b;
 }
 
 .tone-warning .kpi-icon,
 .tone-warning .kpi-badge,
 .is-unpaid {
-  background: rgba(221, 91, 0, 0.12);
+  background: rgba(221, 91, 0, 0.1);
   color: #dd5b00;
+}
+
+.tone-warning.kpi-card::before {
+  background: #dd5b00;
 }
 
 .tone-neutral .kpi-icon,
 .tone-neutral .kpi-badge,
 .is-paid {
-  background: rgba(102, 112, 133, 0.12);
+  background: rgba(102, 112, 133, 0.1);
   color: #667085;
+}
+
+.tone-neutral.kpi-card::before {
+  background: #667085;
 }
 
 .is-exempt {
