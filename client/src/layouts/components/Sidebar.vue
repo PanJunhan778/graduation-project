@@ -241,6 +241,11 @@ function getRoleName(role?: string) {
   padding: 8px 6px 10px;
 }
 
+.sidebar.collapsed .sidebar-header {
+  justify-content: center;
+  padding-inline: 0;
+}
+
 .brand-mark {
   width: 36px;
   height: 36px;

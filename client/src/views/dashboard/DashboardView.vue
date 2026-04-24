@@ -70,6 +70,7 @@ const activeTab = ref<AnalyticsTab>('finance')
 const exporting = ref(false)
 const showExportStage = ref(false)
 const financeTrendMode = ref<FinanceTrendViewMode>('mixed')
+const dashboardFloatingSwitchRef = ref<HTMLDivElement | null>(null)
 
 const financeExpenseChartRef = ref<HTMLDivElement | null>(null)
 const financeIncomeChartRef = ref<HTMLDivElement | null>(null)
@@ -143,6 +144,24 @@ const tabLabelMap: Record<AnalyticsTab, string> = {
   tax: '税务健康',
 }
 
+const dashboardTabOptions: Array<{ label: string; value: AnalyticsTab }> = [
+  { label: '财务剖析', value: 'finance' },
+  { label: '人事洞察', value: 'hr' },
+  { label: '税务健康', value: 'tax' },
+]
+
+const dashboardTitleMap: Record<AnalyticsTab, string> = {
+  finance: '财务数据看板',
+  hr: '人事数据看板',
+  tax: '税务数据看板',
+}
+
+const dashboardFocusMap: Record<AnalyticsTab, string> = {
+  finance: '收入集中度与利润弹性',
+  hr: '当前团队结构画像',
+  tax: '税负强度与待缴风险',
+}
+
 const financeRangeLabelMap: Record<FinanceDashboardRange, string> = {
   last3months: '近 3 个月',
   last6months: '近 6 个月',
@@ -174,6 +193,8 @@ const TAX_EXPORT_CHART_SIZES: Record<TaxExportChartKind, ExportChartSize> = {
 
 const companyLabel = computed(() => userStore.companyName || '当前企业')
 const activeTabLabel = computed(() => tabLabelMap[activeTab.value])
+const activeDashboardTitle = computed(() => dashboardTitleMap[activeTab.value])
+const activeDashboardFocus = computed(() => dashboardFocusMap[activeTab.value])
 const activeRangeLabel = computed(() => {
   if (activeTab.value === 'finance') return financeRangeLabelMap[financeState.range]
   if (activeTab.value === 'hr') return '当前在职口径'
@@ -618,6 +639,23 @@ async function fetchTaxData() {
 
 function handleTabChange(name: string | number) {
   activeTab.value = name as AnalyticsTab
+}
+
+function handleFloatingSwitchLeave() {
+  const activeElement = document.activeElement
+  if (
+    activeElement instanceof HTMLElement &&
+    dashboardFloatingSwitchRef.value?.contains(activeElement)
+  ) {
+    activeElement.blur()
+  }
+}
+
+function handleHeaderTabChange(tab: AnalyticsTab) {
+  if (exporting.value) return
+  if (tab !== activeTab.value) {
+    activeTab.value = tab
+  }
 }
 
 async function handleFinanceRangeChange() {
@@ -1222,6 +1260,11 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
   const isLineMode = financeTrendMode.value === 'line'
   const months = data.monthlyTrend.map((item) => item.month)
   const profitMarginSeries = data.monthlyTrend.map((item) => (item.income > 0 ? item.profit / item.income : null))
+  const financeTrendLegendData = [
+    { name: incomeName, itemStyle: { color: '#2a9d99' } },
+    { name: expenseName, itemStyle: { color: '#dd5b00' } },
+    { name: isBarMode ? profitName : profitMarginName, itemStyle: { color: '#213183' } },
+  ]
 
   setChartOption('finance-trend', financeTrendChartRef.value, {
     color: ['#2a9d99', '#dd5b00', '#213183'],
@@ -1260,7 +1303,7 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
     },
     legend: {
       top: 0,
-      data: [incomeName, expenseName, isBarMode ? profitName : profitMarginName],
+      data: financeTrendLegendData,
       icon: 'roundRect',
       itemWidth: 12,
       itemHeight: 8,
@@ -1332,6 +1375,7 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         ? {
             name: incomeName,
             type: 'line',
+            color: '#2a9d99',
             smooth: true,
             showSymbol: true,
             symbolSize: 6,
@@ -1343,6 +1387,7 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         : {
             name: incomeName,
             type: 'bar',
+            color: '#2a9d99',
             barWidth: isBarMode ? 14 : 18,
             itemStyle: {
               color: '#2a9d99',
@@ -1354,6 +1399,7 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         ? {
             name: expenseName,
             type: 'line',
+            color: '#dd5b00',
             smooth: true,
             showSymbol: true,
             symbolSize: 6,
@@ -1365,6 +1411,7 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         : {
             name: expenseName,
             type: 'bar',
+            color: '#dd5b00',
             barWidth: isBarMode ? 14 : 18,
             itemStyle: {
               color: '#dd5b00',
@@ -1376,19 +1423,31 @@ function renderFinanceTrendChart(data: FinanceDashboardVO) {
         ? {
             name: profitName,
             type: 'bar',
+            color: '#213183',
             barWidth: 14,
             itemStyle: {
-              color: (params: { value: number }) => (params.value >= 0 ? '#213183' : '#d1495b'),
+              color: '#213183',
               shadowColor: 'rgba(33, 49, 131, 0.18)',
               shadowBlur: 16,
               shadowOffsetY: 8,
               borderRadius: [8, 8, 0, 0],
             },
-            data: data.monthlyTrend.map((item) => item.profit),
+            data: data.monthlyTrend.map((item) =>
+              item.profit < 0
+                ? {
+                    value: item.profit,
+                    itemStyle: {
+                      color: '#d1495b',
+                      shadowColor: 'rgba(209, 73, 91, 0.18)',
+                    },
+                  }
+                : item.profit,
+            ),
           }
         : {
             name: profitMarginName,
             type: 'line',
+            color: '#213183',
             yAxisIndex: 1,
             smooth: true,
             showSymbol: true,
@@ -2176,28 +2235,63 @@ function toNumber(value: number | string | undefined | null) {
         <div class="dashboard-header__meta">
           <span class="hero-badge">Owner Analytics</span>
           <span class="header-chip header-chip--company">{{ companyLabel }}</span>
-          <span class="header-chip">{{ activeTabLabel }}</span>
-          <span class="header-chip">{{ activeRangeLabel }}</span>
         </div>
 
         <div class="dashboard-header__copy">
-          <h1>数据看板</h1>
-          <p>让数据说话，让决策有据。</p>
+          <h1>{{ activeDashboardTitle }}</h1>
+          <p>{{ activeDashboardFocus }}</p>
         </div>
       </div>
 
-      <el-button
-        type="primary"
-        plain
-        :icon="Download"
-        :loading="exporting"
-        :disabled="!canExportDashboard"
-        class="dashboard-header__export"
-        data-pdf-hide
-        @click="handleExportDashboard"
-      >
-        导出 PDF 报告
-      </el-button>
+      <div class="dashboard-header__actions">
+        <div class="dashboard-header__controls">
+          <span v-if="currentTabLoading" class="loading-pill">更新中</span>
+          <el-select
+            v-if="activeTab === 'finance'"
+            v-model="financeState.range"
+            size="small"
+            class="range-select dashboard-header__range-select"
+            :disabled="financeState.loading || exporting"
+            @change="handleFinanceRangeChange"
+          >
+            <el-option
+              v-for="option in financeRangeOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+          <el-select
+            v-else-if="activeTab === 'tax'"
+            v-model="taxState.range"
+            size="small"
+            class="range-select dashboard-header__range-select"
+            :disabled="taxState.loading || exporting || !taxRangeOptions.length"
+            @change="handleTaxRangeChange"
+          >
+            <el-option
+              v-for="option in taxRangeOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+          <span v-else class="header-chip header-chip--range">{{ activeRangeLabel }}</span>
+        </div>
+
+        <el-button
+          type="primary"
+          plain
+          :icon="Download"
+          :loading="exporting"
+          :disabled="!canExportDashboard"
+          class="dashboard-header__export"
+          data-pdf-hide
+          @click="handleExportDashboard"
+        >
+          导出 PDF 报告
+        </el-button>
+      </div>
     </section>
 
     <el-tabs
@@ -2208,32 +2302,6 @@ function toNumber(value: number | string | undefined | null) {
     >
       <el-tab-pane label="财务剖析" name="finance" lazy>
         <section class="tab-shell">
-          <div class="tab-toolbar">
-            <div class="tab-toolbar__copy">
-              <span class="tab-eyebrow">当前视角</span>
-              <h2>收入集中度与利润弹性</h2>
-              <p>先回答经营依赖是否过高，再判断成本吞噬和利润趋势有没有开始收紧。</p>
-            </div>
-
-            <div class="toolbar-actions">
-              <span v-if="financeState.loading" class="loading-pill">更新中</span>
-              <el-select
-                v-model="financeState.range"
-                size="small"
-                class="range-select"
-                :disabled="financeState.loading || exporting"
-                @change="handleFinanceRangeChange"
-              >
-                <el-option
-                  v-for="option in financeRangeOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-            </div>
-          </div>
-
           <div v-if="financeState.loading && !financeState.data && showCurrentLoadingSkeleton" class="loading-grid">
             <div class="loading-card ds-card" />
             <div class="loading-card ds-card" />
@@ -2379,18 +2447,6 @@ function toNumber(value: number | string | undefined | null) {
 
       <el-tab-pane label="人事洞察" name="hr" lazy>
         <section class="tab-shell">
-          <div class="tab-toolbar">
-            <div class="tab-toolbar__copy">
-              <span class="tab-eyebrow">当前视角</span>
-              <h2>当前团队结构画像</h2>
-              <p>只基于现有在职名册，先回答当前薪资包主要压在哪些部门、团队单价是否偏高。</p>
-            </div>
-
-            <div v-if="hrState.loading" class="toolbar-actions">
-              <span class="loading-pill">更新中</span>
-            </div>
-          </div>
-
           <div v-if="hrState.loading && !hrState.data && showCurrentLoadingSkeleton" class="loading-grid">
             <div class="loading-card ds-card" />
             <div class="loading-card ds-card" />
@@ -2494,32 +2550,6 @@ function toNumber(value: number | string | undefined | null) {
 
       <el-tab-pane label="税务健康" name="tax" lazy>
         <section class="tab-shell">
-          <div class="tab-toolbar">
-            <div class="tab-toolbar__copy">
-              <span class="tab-eyebrow">当前视角</span>
-              <h2>税负强度与待缴风险</h2>
-              <p>先判断税负是否过重，再看风险是不是已经累积到需要处理的阶段。</p>
-            </div>
-
-            <div class="toolbar-actions">
-              <span v-if="taxState.loading" class="loading-pill">更新中</span>
-              <el-select
-                v-model="taxState.range"
-                size="small"
-                class="range-select"
-                :disabled="taxState.loading || exporting || !taxRangeOptions.length"
-                @change="handleTaxRangeChange"
-              >
-                <el-option
-                  v-for="option in taxRangeOptions"
-                  :key="option.value"
-                  :label="option.label"
-                  :value="option.value"
-                />
-              </el-select>
-            </div>
-          </div>
-
           <div v-if="taxState.loading && !taxState.data && showCurrentLoadingSkeleton" class="loading-grid">
             <div class="loading-card ds-card" />
             <div class="loading-card ds-card" />
@@ -2684,6 +2714,30 @@ function toNumber(value: number | string | undefined | null) {
         </section>
       </el-tab-pane>
     </el-tabs>
+
+    <div
+      ref="dashboardFloatingSwitchRef"
+      class="dashboard-floating-switch"
+      :class="{ 'is-forced-open': currentTabLoading || exporting }"
+      data-pdf-hide
+      @mouseleave="handleFloatingSwitchLeave"
+    >
+      <div class="dashboard-tab-switch" role="tablist" aria-label="数据看板视图切换">
+        <button
+          v-for="option in dashboardTabOptions"
+          :key="option.value"
+          type="button"
+          class="dashboard-tab-switch__button"
+          :class="{ 'is-active': activeTab === option.value }"
+          :aria-selected="activeTab === option.value"
+          :disabled="exporting"
+          role="tab"
+          @click="handleHeaderTabChange(option.value)"
+        >
+          <span class="dashboard-tab-switch__text">{{ option.label }}</span>
+        </button>
+      </div>
+    </div>
 
     <div
       v-if="showExportStage"
@@ -3140,22 +3194,26 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .dashboard-header {
-  min-height: 108px;
+  min-height: 116px;
   padding: 18px 22px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px 18px;
-  align-items: end;
+  grid-template-areas:
+    'main actions';
+  gap: 18px;
+  align-items: stretch;
   overflow: hidden;
   background:
-    radial-gradient(circle at top right, rgba(0, 117, 222, 0.14), transparent 32%),
-    linear-gradient(135deg, #ffffff 0%, #f8fbff 44%, #f6f5f4 100%);
+    radial-gradient(circle at top right, rgba(0, 117, 222, 0.1), transparent 28%),
+    linear-gradient(135deg, #ffffff 0%, #fbfdff 48%, #f7f6f5 100%);
 }
 
 .dashboard-header__main {
+  grid-area: main;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: 12px;
 }
 
@@ -3200,22 +3258,205 @@ function toNumber(value: number | string | undefined | null) {
 .dashboard-header__copy {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .dashboard-header__copy h1 {
-  font-size: 28px;
+  margin: 0;
+  font-size: 34px;
   font-weight: 700;
   line-height: 1.1;
-  letter-spacing: -0.875px;
+  letter-spacing: -0.25px;
   color: rgba(0, 0, 0, 0.95);
 }
 
 .dashboard-header__copy p {
-  max-width: 56ch;
+  margin: 0;
+  max-width: 72ch;
   color: #615d59;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.dashboard-header__actions {
+  grid-area: actions;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 12px;
+  align-self: end;
+  justify-self: end;
+}
+
+.dashboard-floating-switch {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  z-index: 40;
+  transform: translateY(-50%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.dashboard-floating-switch .dashboard-tab-switch {
+  pointer-events: auto;
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 8px 8px 32px;
+  border-radius: 22px 0 0 22px;
+  backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    0 18px 40px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  opacity: 0.84;
+  transform: translateX(calc(100% - 34px));
+  transition:
+    opacity 0.2s ease,
+    transform 0.24s ease,
+    box-shadow 0.2s ease;
+}
+
+.dashboard-floating-switch .dashboard-tab-switch::before {
+  content: '视图切换';
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  color: #6f8ead;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.dashboard-floating-switch:hover .dashboard-tab-switch,
+.dashboard-floating-switch:focus-within .dashboard-tab-switch,
+.dashboard-floating-switch.is-forced-open .dashboard-tab-switch {
+  opacity: 1;
+  transform: translateX(0);
+  box-shadow:
+    0 22px 46px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.dashboard-floating-switch .dashboard-tab-switch__button {
+  width: 42px;
+  min-width: 42px;
+  min-height: 94px;
+  padding: 12px 0;
+  border-radius: 16px;
+}
+
+.dashboard-floating-switch .dashboard-tab-switch__text {
+  display: inline-block;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.dashboard-tab-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.dashboard-tab-switch__button {
+  min-height: 30px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #615d59;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.dashboard-tab-switch__button.is-active {
+  background: #ffffff;
+  color: #097fe8;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.dashboard-tab-switch__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+.dashboard-header__controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.header-chip--range {
+  min-height: 32px;
+  padding-inline: 14px;
+  border-color: rgba(9, 127, 232, 0.14);
+  background: rgba(242, 249, 255, 0.92);
+  color: #3f5169;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.72),
+    0 6px 14px rgba(15, 23, 42, 0.04);
+}
+
+.range-select.dashboard-header__range-select {
+  width: 128px;
+}
+
+.dashboard-header__range-select :deep(.el-select__wrapper) {
+  min-height: 32px;
+  padding: 0 12px 0 14px;
+  border-radius: 9999px;
+  background: rgba(242, 249, 255, 0.92);
+  box-shadow:
+    inset 0 0 0 1px rgba(9, 127, 232, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 6px 14px rgba(15, 23, 42, 0.04);
+  transition:
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.dashboard-header__range-select:hover :deep(.el-select__wrapper),
+.dashboard-header__range-select :deep(.el-select__wrapper.is-focused) {
+  background: #ffffff;
+  box-shadow:
+    inset 0 0 0 1px rgba(9, 127, 232, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 8px 18px rgba(9, 127, 232, 0.08);
+}
+
+.dashboard-header__range-select :deep(.el-select__selected-item) {
+  color: #3f5169;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dashboard-header__range-select :deep(.el-select__caret) {
+  color: #6f8ead;
   font-size: 14px;
-  line-height: 1.6;
 }
 
 .note-label {
@@ -3229,8 +3470,6 @@ function toNumber(value: number | string | undefined | null) {
   min-height: 42px;
   padding-inline: 18px;
   border-radius: 14px;
-  align-self: end;
-  justify-self: end;
   border-color: rgba(0, 0, 0, 0.08);
   background: rgba(255, 255, 255, 0.84);
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.04);
@@ -3243,74 +3482,13 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .dashboard-tabs :deep(.el-tabs__header) {
-  margin-bottom: 0;
-}
-
-.dashboard-tabs :deep(.el-tabs__nav-wrap::after) {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-.dashboard-tabs :deep(.el-tabs__item) {
-  height: 40px;
-  font-weight: 600;
-  color: #615d59;
-}
-
-.dashboard-tabs :deep(.el-tabs__item.is-active) {
-  color: rgba(0, 0, 0, 0.95);
-}
-
-.dashboard-tabs :deep(.el-tabs__active-bar) {
-  height: 3px;
-  border-radius: 9999px;
+  display: none;
 }
 
 .tab-shell {
-  padding-top: 14px;
+  padding-top: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-}
-
-.tab-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-}
-
-.tab-toolbar__copy {
-  max-width: 60ch;
-}
-
-.tab-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #8892a5;
-}
-
-.tab-toolbar h2 {
-  margin-top: 4px;
-  font-size: 22px;
-  font-weight: 700;
-  color: rgba(0, 0, 0, 0.95);
-  letter-spacing: -0.25px;
-}
-
-.tab-toolbar p {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #615d59;
-}
-
-.toolbar-actions {
-  display: flex;
-  align-items: center;
   gap: 10px;
 }
 
@@ -3461,7 +3639,6 @@ function toNumber(value: number | string | undefined | null) {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
-  margin-bottom: 18px;
 }
 
 @media (max-width: 1200px) {
@@ -3477,7 +3654,7 @@ function toNumber(value: number | string | undefined | null) {
 }
 
 .dashboard-spacer {
-  margin-bottom: 18px;
+  margin-bottom: 0;
 }
 
 .signal-card {
@@ -5085,22 +5262,12 @@ function toNumber(value: number | string | undefined | null) {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-header {
-    grid-template-columns: 1fr;
-  }
-
   .dashboard-header__export.el-button {
-    justify-self: start;
     min-width: 180px;
   }
 }
 
 @media (max-width: 960px) {
-  .tab-toolbar {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   .dashboard-header__export.el-button {
     width: 100%;
   }
@@ -5151,11 +5318,6 @@ function toNumber(value: number | string | undefined | null) {
 
   .summary-value {
     font-size: 26px;
-  }
-
-  .toolbar-actions {
-    width: 100%;
-    justify-content: space-between;
   }
 
   .panel-inline-metric {
