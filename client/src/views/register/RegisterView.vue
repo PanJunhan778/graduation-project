@@ -188,48 +188,107 @@ async function handleRegister() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f6f5f4;
-  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(0, 117, 222, 0.08) 0%, rgba(246, 250, 255, 0.72) 30%, rgba(246, 245, 244, 0.96) 100%);
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.register-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(13, 102, 194, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 102, 194, 0.04) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(135deg, rgba(0, 0, 0, 0.72), transparent 72%);
+  pointer-events: none;
 }
 
 .register-container {
   width: 100%;
-  max-width: 460px;
+  max-width: 500px;
+  position: relative;
+  z-index: 1;
 }
 
 .register-card {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 40px;
-  box-shadow:
-    rgba(0,0,0,0.04) 0px 4px 18px,
-    rgba(0,0,0,0.027) 0px 2.025px 7.84688px,
-    rgba(0,0,0,0.02) 0px 0.8px 2.925px,
-    rgba(0,0,0,0.01) 0px 0.175px 1.04062px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.94));
+  border: 1px solid rgba(52, 78, 121, 0.12);
+  border-radius: 28px;
+  padding: 36px 42px 34px;
+  box-shadow: 0 34px 82px rgba(15, 23, 42, 0.14);
+  position: relative;
+  overflow: hidden;
+}
+
+.register-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #0d66c2, #3394f5, #213183);
 }
 
 .card-header {
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .card-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: rgba(0,0,0,0.95);
-  margin-bottom: 6px;
-  letter-spacing: -0.25px;
+  font-size: 28px;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.96);
+  margin-bottom: 8px;
+  letter-spacing: 0;
 }
 
 .card-subtitle {
   font-size: 14px;
-  color: #615d59;
+  line-height: 1.7;
+  color: #5f6675;
+}
+
+.register-card :deep(.el-form-item) {
+  margin-bottom: 16px;
+}
+
+.register-card :deep(.el-form-item__label) {
+  margin-bottom: 8px;
+  color: rgba(15, 23, 42, 0.88) !important;
+  font-weight: 700 !important;
+}
+
+.register-card :deep(.el-input__wrapper) {
+  min-height: 48px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(31, 41, 55, 0.12) inset;
+  transition:
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.register-card :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px rgba(13, 102, 194, 0.24) inset;
+}
+
+.register-card :deep(.el-input__wrapper.is-focus) {
+  background: #ffffff;
+  box-shadow:
+    0 0 0 1px #0d66c2 inset,
+    0 12px 24px rgba(13, 102, 194, 0.1);
 }
 
 .code-hint {
   font-size: 12px;
-  color: #a39e98;
-  margin-top: -12px;
-  margin-bottom: 16px;
+  color: #7f8795;
+  margin-top: -8px;
+  margin-bottom: 14px;
 }
 
 .custom-error {
@@ -239,15 +298,29 @@ async function handleRegister() {
 
 .register-btn {
   width: 100%;
-  height: 44px;
+  height: 50px;
   font-size: 15px;
-  font-weight: 600;
-  border-radius: 4px;
+  font-weight: 800;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0d66c2, #3394f5);
+  box-shadow: 0 16px 30px rgba(13, 102, 194, 0.24);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.register-btn:hover,
+.register-btn:focus-visible {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, #0b5cad, #2789ec);
+  box-shadow: 0 20px 34px rgba(13, 102, 194, 0.3);
 }
 
 .card-footer {
   text-align: center;
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
 .footer-text {
@@ -259,11 +332,23 @@ async function handleRegister() {
   font-size: 14px;
   color: #0075de;
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 800;
   margin-left: 4px;
+  transition: color 0.18s ease;
 }
 
 .login-link:hover {
-  text-decoration: underline;
+  color: #005bab;
+}
+
+@media (max-width: 640px) {
+  .register-page {
+    padding: 20px;
+  }
+
+  .register-card {
+    padding: 34px 24px 30px;
+    border-radius: 24px;
+  }
 }
 </style>
