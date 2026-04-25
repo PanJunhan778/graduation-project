@@ -9,6 +9,7 @@ import {
   Document,
   Expand,
   Fold,
+  Guide,
   HomeFilled,
   OfficeBuilding,
   Tickets,
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const STAFF_FINANCE_GUIDE_START_EVENT = 'staff-finance-guide:start'
 
 const profileVisible = ref(false)
 const profileTriggerRef = ref<HTMLElement | null>(null)
@@ -72,6 +74,17 @@ const activePath = computed(() => route.path)
 const displayName = computed(() => userStore.realName || '当前用户')
 const roleLabel = computed(() => getRoleName(userStore.role))
 const avatarText = computed(() => displayName.value.charAt(0).toUpperCase() || 'U')
+const ownerGuideLabel = computed(() =>
+  userStore.hasCompletedOwnerOnboardingTour() || userStore.hasDismissedOwnerOnboardingTour()
+    ? '重新查看引导'
+    : '查看功能引导',
+)
+const sidebarGuideLabel = computed(() => {
+  if (userStore.role === 'owner') return ownerGuideLabel.value
+  if (userStore.role === 'staff') return '查看功能引导'
+  return ''
+})
+const showGuideEntry = computed(() => userStore.role === 'owner' || userStore.role === 'staff')
 
 watch(
   () => route.fullPath,
@@ -95,6 +108,29 @@ onBeforeUnmount(() => {
 
 function navigate(path: string) {
   router.push(path)
+}
+
+function startOwnerGuide() {
+  window.dispatchEvent(new CustomEvent('owner-onboarding:start'))
+}
+
+async function startStaffGuide() {
+  if (route.path !== '/finance') {
+    await router.push('/finance')
+  }
+  await nextTick()
+  window.dispatchEvent(new CustomEvent(STAFF_FINANCE_GUIDE_START_EVENT))
+}
+
+function startGuide() {
+  if (userStore.role === 'owner') {
+    startOwnerGuide()
+    return
+  }
+
+  if (userStore.role === 'staff') {
+    void startStaffGuide()
+  }
 }
 
 function toggleProfilePopover() {
@@ -161,6 +197,7 @@ function getRoleName(role?: string) {
       <div
         class="nav-list"
         :id="userStore.role === 'staff' ? 'staff-guide-sidebar-menu' : undefined"
+        :data-guide="userStore.role === 'owner' ? 'owner-sidebar-menu' : userStore.role === 'staff' ? 'staff-sidebar-menu' : undefined"
       >
         <button
           v-for="menu in visibleMenus"
@@ -179,11 +216,24 @@ function getRoleName(role?: string) {
 
     <div class="sidebar-bottom">
       <button
+        v-if="showGuideEntry"
+        type="button"
+        class="guide-entry"
+        :class="{ compact: props.collapsed }"
+        :title="props.collapsed ? sidebarGuideLabel : undefined"
+        @click="startGuide"
+      >
+        <el-icon :size="18"><Guide /></el-icon>
+        <span v-if="!props.collapsed">{{ sidebarGuideLabel }}</span>
+      </button>
+
+      <button
         ref="profileTriggerRef"
         type="button"
         class="profile-trigger"
         :class="{ compact: props.collapsed, active: profileVisible }"
         :title="props.collapsed ? `${displayName} · ${roleLabel}` : undefined"
+        :data-guide="userStore.role === 'owner' ? 'owner-profile-entry' : undefined"
         @click="toggleProfilePopover"
       >
         <span class="profile-avatar">{{ avatarText }}</span>
@@ -384,12 +434,48 @@ function getRoleName(role?: string) {
 }
 
 .profile-trigger,
-.collapse-control {
+.collapse-control,
+.guide-entry {
   width: 100%;
   border: none;
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.82);
   cursor: pointer;
+}
+
+.guide-entry {
+  min-height: 42px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid rgba(13, 102, 194, 0.14);
+  background: linear-gradient(135deg, rgba(20, 115, 230, 0.09), rgba(255, 255, 255, 0.88));
+  color: #0d66c2;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 12px 24px rgba(13, 102, 194, 0.08);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.guide-entry:hover,
+.guide-entry:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(13, 102, 194, 0.24);
+  background: #ffffff;
+  color: #075aaa;
+  box-shadow: 0 16px 28px rgba(13, 102, 194, 0.14);
+  outline: none;
+}
+
+.guide-entry.compact {
+  padding-inline: 0;
 }
 
 .profile-trigger {

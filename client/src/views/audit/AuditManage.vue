@@ -252,7 +252,7 @@ onMounted(initFromRouteQuery)
     :row-count="8"
   />
   <div v-else class="crud-page">
-    <div class="crud-card">
+    <div class="crud-card" data-guide="owner-audit-workspace">
       <div class="crud-page-header">
         <div>
           <h2 class="crud-page-title">审计日志</h2>
@@ -260,7 +260,7 @@ onMounted(initFromRouteQuery)
         </div>
       </div>
 
-      <div class="crud-toolbar">
+      <div class="crud-toolbar" data-guide="owner-audit-filters">
         <div class="crud-toolbar-left">
           <el-select
             v-model="filters.module"

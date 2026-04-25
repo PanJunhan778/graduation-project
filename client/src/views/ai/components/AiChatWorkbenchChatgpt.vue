@@ -890,7 +890,7 @@ function syncCompactHistoryMode(matches: boolean) {
         </div>
       </section>
 
-      <footer class="chat-pane__composer">
+      <footer class="chat-pane__composer" data-guide="owner-ai-composer">
         <div class="chat-composer__surface">
           <div class="chat-composer__input">
             <el-input

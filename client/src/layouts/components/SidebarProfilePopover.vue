@@ -227,6 +227,9 @@ async function handleLogout() {
     await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
       confirmButtonText: '退出登录',
       cancelButtonText: '取消',
+      customClass: 'app-message-card app-message-card--warning',
+      confirmButtonClass: 'app-message-card__button app-message-card__button--primary',
+      cancelButtonClass: 'app-message-card__button app-message-card__button--secondary',
       type: 'warning',
     })
     emit('close')
@@ -353,10 +356,17 @@ function clamp(value: number, min: number, max: number) {
               <el-input v-model="passwordForm.newPassword" type="password" show-password />
             </el-form-item>
             <div class="detail-actions">
-              <el-button @click="activePanel = null">取消</el-button>
-              <el-button type="primary" :loading="passwordSubmitting" @click="handleSubmitPassword">
+              <button type="button" class="profile-action-button profile-action-button--secondary" @click="activePanel = null">
+                取消
+              </button>
+              <button
+                type="button"
+                class="profile-action-button profile-action-button--primary"
+                :disabled="passwordSubmitting"
+                @click="handleSubmitPassword"
+              >
                 保存新密码
-              </el-button>
+              </button>
             </div>
           </el-form>
         </template>
@@ -384,10 +394,17 @@ function clamp(value: number, min: number, max: number) {
               <span>写清主营业务、客户类型和经营重心，AI 的总结会更贴近真实情况。</span>
             </div>
             <div class="detail-actions">
-              <el-button @click="activePanel = null">取消</el-button>
-              <el-button type="primary" :loading="companySubmitting" @click="handleSubmitCompany">
+              <button type="button" class="profile-action-button profile-action-button--secondary" @click="activePanel = null">
+                取消
+              </button>
+              <button
+                type="button"
+                class="profile-action-button profile-action-button--primary"
+                :disabled="companySubmitting"
+                @click="handleSubmitCompany"
+              >
                 保存企业画像
-              </el-button>
+              </button>
             </div>
           </el-form>
         </template>
@@ -635,6 +652,66 @@ function clamp(value: number, min: number, max: number) {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.profile-action-button {
+  min-width: 118px;
+  min-height: 44px;
+  padding: 0 22px;
+  border: none;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+
+.profile-action-button:hover,
+.profile-action-button:focus-visible {
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.profile-action-button--secondary {
+  border: 1px solid rgba(31, 41, 55, 0.14);
+  background: rgba(255, 255, 255, 0.84);
+  color: #4b5565;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+}
+
+.profile-action-button--secondary:hover,
+.profile-action-button--secondary:focus-visible {
+  border-color: rgba(20, 115, 230, 0.2);
+  background: #ffffff;
+  color: #0d66c2;
+}
+
+.profile-action-button--primary {
+  background: linear-gradient(135deg, #0d66c2, #3394f5);
+  color: #ffffff;
+  box-shadow: 0 14px 26px rgba(13, 102, 194, 0.24);
+}
+
+.profile-action-button--primary:hover,
+.profile-action-button--primary:focus-visible {
+  background: linear-gradient(135deg, #0b5cad, #2789ec);
+  box-shadow: 0 18px 30px rgba(13, 102, 194, 0.3);
+}
+
+.profile-action-button:disabled,
+.profile-action-button:disabled:hover,
+.profile-action-button:disabled:focus-visible {
+  cursor: not-allowed;
+  transform: none;
+  opacity: 0.62;
+  box-shadow: none;
 }
 
 .profile-error {

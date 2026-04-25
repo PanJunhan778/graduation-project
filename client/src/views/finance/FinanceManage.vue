@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { Plus, Upload, Delete, Edit, Warning, Loading, RefreshLeft, Search } from '@element-plus/icons-vue'
 import FinanceOnboardingGuide from '@/components/common/FinanceOnboardingGuide.vue'
 import PageTableSkeleton from '@/components/common/PageTableSkeleton.vue'
@@ -40,11 +40,13 @@ const recycleBinCurrentPage = ref(1)
 const recycleBinPageSize = ref(10)
 const recycleBinSelectedRows = ref<FinanceRecycleBinVO[]>([])
 const showInitialSkeleton = useDelayedLoading(() => loading.value && !hasLoaded.value)
-const actionBarRef = ref<HTMLElement | null>(null)
+const actionGroupRef = ref<HTMLElement | null>(null)
 const filterBarRef = ref<HTMLElement | null>(null)
 const tableSectionRef = ref<HTMLElement | null>(null)
 const staffGuideVisible = ref(false)
 const staffGuideBootstrapped = ref(false)
+const staffGuideManualPending = ref(false)
+const STAFF_FINANCE_GUIDE_START_EVENT = 'staff-finance-guide:start'
 
 // ---- 筛选 ----
 const filterType = ref('')
@@ -69,16 +71,21 @@ const staffGuideSteps = computed(() => [
   {
     title: '左侧可以切换三类业务数据',
     description: '这里可以在财务账本、税务档案和员工名册之间切换。三个页面的录入逻辑和布局是一致的，先学会财务页，其他两页也会很好上手。',
-    target: getGuideElement('staff-guide-sidebar-menu'),
+    targetSelector: '[data-guide="staff-sidebar-menu"], #staff-guide-sidebar-menu',
     placement: 'right' as const,
     width: 400,
+    highlightPadding: 8,
+    highlightRadius: 18,
+    minCardLeft: 300,
   },
   {
     title: '先认识这一排基础操作',
     description: '这里提供单笔新增、Excel 批量导入和导入模板下载。建议先下载模板确认字段，再决定逐条录入还是批量导入。',
-    target: actionBarRef.value,
+    target: actionGroupRef.value,
     placement: 'bottom' as const,
     width: 400,
+    highlightPadding: 10,
+    highlightRadius: 18,
   },
   {
     title: '筛选和查询都在这里完成',
@@ -86,6 +93,8 @@ const staffGuideSteps = computed(() => [
     target: filterBarRef.value,
     placement: 'bottom' as const,
     width: 380,
+    highlightPadding: 10,
+    highlightRadius: 18,
   },
   {
     title: '数据录入后会显示在这里',
@@ -93,13 +102,10 @@ const staffGuideSteps = computed(() => [
     target: tableSectionRef.value,
     placement: 'top' as const,
     width: 400,
+    highlightPadding: 8,
+    highlightRadius: 20,
   },
 ])
-
-function getGuideElement(id: string) {
-  if (typeof document === 'undefined') return null
-  return document.getElementById(id)
-}
 
 async function fetchList() {
   loading.value = true
@@ -124,7 +130,11 @@ async function fetchList() {
   } finally {
     hasLoaded.value = true
     loading.value = false
-    if (!staffGuideBootstrapped.value && financeTotalForGuide !== null) {
+    if (staffGuideManualPending.value) {
+      staffGuideManualPending.value = false
+      staffGuideBootstrapped.value = true
+      await showStaffGuide()
+    } else if (!staffGuideBootstrapped.value && financeTotalForGuide !== null) {
       await nextTick()
       void bootstrapStaffGuide(financeTotalForGuide)
     }
@@ -403,10 +413,32 @@ async function bootstrapStaffGuide(financeTotal: number) {
     }
 
     await nextTick()
-    staffGuideVisible.value = true
+    await showStaffGuide()
   } catch (error) {
     console.error('Failed to start staff finance onboarding guide.', error)
   }
+}
+
+async function showStaffGuide() {
+  await nextTick()
+  staffGuideVisible.value = false
+  await nextTick()
+  staffGuideVisible.value = true
+}
+
+function requestStaffGuide() {
+  if (userStore.role !== 'staff') return
+
+  if (!hasLoaded.value) {
+    staffGuideManualPending.value = true
+    return
+  }
+
+  void showStaffGuide()
+}
+
+function handleStaffGuideStart() {
+  requestStaffGuide()
 }
 
 function openImportDialog() {
@@ -470,7 +502,12 @@ async function initializePage() {
 }
 
 onMounted(() => {
+  window.addEventListener(STAFF_FINANCE_GUIDE_START_EVENT, handleStaffGuideStart)
   void initializePage()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener(STAFF_FINANCE_GUIDE_START_EVENT, handleStaffGuideStart)
 })
 </script>
 
@@ -492,8 +529,8 @@ onMounted(() => {
       </div>
 
       <!-- 操作栏 -->
-      <div ref="actionBarRef" class="crud-toolbar">
-        <div class="crud-toolbar-left">
+      <div class="crud-toolbar">
+        <div ref="actionGroupRef" class="crud-toolbar-left" data-guide="owner-finance-actions">
           <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
           <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>
           <el-button v-if="userStore.isOwner" :icon="RefreshLeft" @click="openRecycleBinDrawer">回收站</el-button>
@@ -556,7 +593,7 @@ onMounted(() => {
       </div>
 
       <!-- 数据表格 -->
-      <div ref="tableSectionRef" class="crud-table-section">
+      <div ref="tableSectionRef" class="crud-table-section" data-guide="owner-finance-table">
         <el-table
           :data="tableData"
           stripe

@@ -111,6 +111,12 @@ const startupTasks = computed(() => {
   ]
 })
 
+const hasPendingStartupTasks = computed(() => startupTasks.value.some((task) => !task.completed))
+const shouldShowStartupTasks = computed(() => {
+  userStore.ownerOnboardingStateVersion
+  return hasPendingStartupTasks.value && !userStore.hasDismissedOwnerOnboardingTour()
+})
+
 const kpiCards = computed(() => {
   if (!dashboard.value) return []
 
@@ -818,7 +824,7 @@ function toNumber(value: number | string | undefined | null) {
     </section>
 
     <template v-else-if="dashboard">
-      <section class="welcome-card ds-card">
+      <section class="welcome-card ds-card" data-guide="owner-home-cockpit">
         <div class="welcome-grid">
           <div class="company-pane">
             <div class="welcome-meta company-pane__meta">
@@ -850,7 +856,7 @@ function toNumber(value: number | string | undefined | null) {
             </div>
           </div>
 
-          <aside class="ai-brief">
+          <aside class="ai-brief" data-guide="owner-home-ai-brief">
             <div class="ai-brief__top">
               <div class="ai-brief__heading">
                 <span class="eyebrow">AI 经营速记</span>
@@ -924,7 +930,7 @@ function toNumber(value: number | string | undefined | null) {
         </article>
       </section>
 
-      <section v-if="!hasAnyData" class="home-main home-main--empty">
+      <section v-if="shouldShowStartupTasks" class="home-main home-main--empty" data-guide="owner-startup-list">
         <div class="state-panel ds-card">
           <h2>首页已经就绪，先完成企业启动动作</h2>
           <p>只要补齐账号和第一批流水，趋势图、税务时间轴和 AI 经营速记都会自动生成。</p>

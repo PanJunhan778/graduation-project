@@ -10,6 +10,12 @@ import {
   getStaffFinanceGuideSeenSessionId,
   setStaffFinanceGuideSeenSessionId,
   removeStaffFinanceGuideSeenSessionId,
+  getOwnerOnboardingPromptedSessionId,
+  setOwnerOnboardingPromptedSessionId,
+  hasCompletedOwnerOnboarding,
+  setOwnerOnboardingCompleted,
+  hasDismissedOwnerOnboarding,
+  setOwnerOnboardingDismissed,
 } from '@/utils/auth'
 import { login as loginApi } from '@/api/auth'
 import type { LoginForm, UserInfo } from '@/types'
@@ -25,6 +31,7 @@ export const useUserStore = defineStore('user', () => {
   const taxpayerType = ref<string>('')
   const loginSessionId = ref<string>(getLoginSessionId() || '')
   const staffFinanceGuideSeenSessionId = ref<string>(getStaffFinanceGuideSeenSessionId() || '')
+  const ownerOnboardingStateVersion = ref(0)
 
   const isLoggedIn = computed(() => !!token.value)
   const isOwner = computed(() => role.value === 'owner')
@@ -109,6 +116,41 @@ export const useUserStore = defineStore('user', () => {
     setStaffFinanceGuideSeenSessionId(sessionId)
   }
 
+  function getOwnerOnboardingScope() {
+    return companyCode.value || companyName.value || 'current-company'
+  }
+
+  function hasPromptedOwnerOnboardingInCurrentSession() {
+    const sessionId = ensureLoginSession()
+    return getOwnerOnboardingPromptedSessionId(getOwnerOnboardingScope()) === sessionId
+  }
+
+  function markOwnerOnboardingPrompted() {
+    const sessionId = ensureLoginSession()
+    setOwnerOnboardingPromptedSessionId(sessionId, getOwnerOnboardingScope())
+    ownerOnboardingStateVersion.value += 1
+  }
+
+  function hasCompletedOwnerOnboardingTour() {
+    ownerOnboardingStateVersion.value
+    return hasCompletedOwnerOnboarding(getOwnerOnboardingScope())
+  }
+
+  function markOwnerOnboardingCompleted() {
+    setOwnerOnboardingCompleted(getOwnerOnboardingScope())
+    ownerOnboardingStateVersion.value += 1
+  }
+
+  function hasDismissedOwnerOnboardingTour() {
+    ownerOnboardingStateVersion.value
+    return hasDismissedOwnerOnboarding(getOwnerOnboardingScope())
+  }
+
+  function dismissOwnerOnboardingTour() {
+    setOwnerOnboardingDismissed(getOwnerOnboardingScope())
+    ownerOnboardingStateVersion.value += 1
+  }
+
   function logout() {
     token.value = null
     role.value = ''
@@ -169,6 +211,7 @@ export const useUserStore = defineStore('user', () => {
     taxpayerType,
     loginSessionId,
     staffFinanceGuideSeenSessionId,
+    ownerOnboardingStateVersion,
     isLoggedIn,
     isOwner,
     setUserState,
@@ -176,6 +219,12 @@ export const useUserStore = defineStore('user', () => {
     login,
     hasSeenStaffFinanceGuideInCurrentSession,
     markStaffFinanceGuideSeen,
+    hasPromptedOwnerOnboardingInCurrentSession,
+    markOwnerOnboardingPrompted,
+    hasCompletedOwnerOnboardingTour,
+    markOwnerOnboardingCompleted,
+    hasDismissedOwnerOnboardingTour,
+    dismissOwnerOnboardingTour,
     logout,
     restoreFromStorage,
   }

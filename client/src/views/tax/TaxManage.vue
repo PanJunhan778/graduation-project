@@ -434,7 +434,7 @@ onMounted(fetchList)
     :row-count="8"
   />
   <div v-else class="crud-page">
-    <div class="crud-card">
+    <div class="crud-card" data-guide="owner-tax-workspace">
       <div class="crud-page-header">
         <div>
           <h2 class="crud-page-title">税务档案</h2>
@@ -442,7 +442,7 @@ onMounted(fetchList)
         </div>
       </div>
 
-      <div class="crud-toolbar">
+      <div class="crud-toolbar" data-guide="owner-tax-actions">
         <div class="crud-toolbar-left">
           <el-button type="primary" :icon="Plus" @click="openCreateDrawer">单笔新增</el-button>
           <el-button :icon="Upload" @click="openImportDialog">Excel 批量导入</el-button>

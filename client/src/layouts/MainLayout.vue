@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import OwnerOnboardingTour from '@/components/common/OwnerOnboardingTour.vue'
 import Sidebar from './components/Sidebar.vue'
 
 const sidebarCollapsed = ref(false)
@@ -23,6 +24,7 @@ function toggleSidebar() {
         <router-view />
       </div>
     </main>
+    <OwnerOnboardingTour />
   </div>
 </template>
 

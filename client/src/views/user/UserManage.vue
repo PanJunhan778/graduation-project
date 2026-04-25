@@ -182,7 +182,9 @@ onMounted(fetchList)
 
       <div class="crud-toolbar">
         <div class="crud-toolbar-left">
-          <el-button type="primary" :icon="Plus" @click="openStaffDialog">创建员工账号</el-button>
+          <span class="guide-inline-anchor" data-guide="owner-user-create">
+            <el-button type="primary" :icon="Plus" @click="openStaffDialog">创建员工账号</el-button>
+          </span>
         </div>
         <div class="crud-toolbar-right">
           <el-input
@@ -321,6 +323,11 @@ onMounted(fetchList)
 <style scoped>
 .crud-page-header {
   margin-bottom: 16px;
+}
+
+.guide-inline-anchor {
+  display: inline-flex;
+  align-items: center;
 }
 
 .text-muted {

@@ -655,6 +655,7 @@ function handleHeaderTabChange(tab: AnalyticsTab) {
   if (exporting.value) return
   if (tab !== activeTab.value) {
     activeTab.value = tab
+    window.dispatchEvent(new CustomEvent('owner-dashboard-view-switched'))
   }
 }
 
@@ -2230,7 +2231,7 @@ function toNumber(value: number | string | undefined | null) {
 
 <template>
   <div ref="dashboardRootRef" class="dashboard-view">
-    <section class="dashboard-header ds-card">
+    <section class="dashboard-header ds-card" data-guide="owner-dashboard-tools">
       <div class="dashboard-header__main">
         <div class="dashboard-header__meta">
           <span class="hero-badge">Owner Analytics</span>
@@ -2719,6 +2720,7 @@ function toNumber(value: number | string | undefined | null) {
       ref="dashboardFloatingSwitchRef"
       class="dashboard-floating-switch"
       :class="{ 'is-forced-open': currentTabLoading || exporting }"
+      data-guide="owner-dashboard-switch"
       data-pdf-hide
       @mouseleave="handleFloatingSwitchLeave"
     >
@@ -3339,7 +3341,8 @@ function toNumber(value: number | string | undefined | null) {
 
 .dashboard-floating-switch:hover .dashboard-tab-switch,
 .dashboard-floating-switch:focus-within .dashboard-tab-switch,
-.dashboard-floating-switch.is-forced-open .dashboard-tab-switch {
+.dashboard-floating-switch.is-forced-open .dashboard-tab-switch,
+.dashboard-floating-switch.is-guide-open .dashboard-tab-switch {
   opacity: 1;
   transform: translateX(0);
   box-shadow:
