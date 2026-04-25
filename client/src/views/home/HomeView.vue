@@ -852,19 +852,11 @@ function toNumber(value: number | string | undefined | null) {
 
           <aside class="ai-brief">
             <div class="ai-brief__top">
-              <div>
+              <div class="ai-brief__heading">
                 <span class="eyebrow">AI 经营速记</span>
                 <h2>近期两点观察</h2>
               </div>
-              <div class="ai-brief__actions">
-                <span v-if="aiSummaryGeneratedText" class="ai-generated-at">{{ aiSummaryGeneratedText }}</span>
-                <button type="button" class="ai-brief__cta" @click="navigateTo('/ai-chat')">
-                  <span class="ai-brief__cta-main">
-                    <span class="ai-brief__cta-label">继续问 AI</span>
-                    <el-icon class="ai-brief__cta-icon" :size="18"><ChatDotRound /></el-icon>
-                  </span>
-                </button>
-              </div>
+              <span v-if="aiSummaryGeneratedText" class="ai-generated-at">{{ aiSummaryGeneratedText }}</span>
             </div>
 
             <div class="ai-brief__body">
@@ -884,9 +876,21 @@ function toNumber(value: number | string | undefined | null) {
                       v-for="(line, index) in homeAiSummaryLines"
                       :key="line"
                       class="ai-summary-line"
+                      :class="{ 'ai-summary-line--with-cta': index === homeAiSummaryLines.length - 1 }"
                     >
                       <span class="ai-summary-line__index">{{ String(index + 1).padStart(2, '0') }}</span>
                       <span class="ai-summary-line__text">{{ line }}</span>
+                      <button
+                        v-if="index === homeAiSummaryLines.length - 1"
+                        type="button"
+                        class="ai-brief__cta ai-summary-line__cta"
+                        @click="navigateTo('/ai-chat')"
+                      >
+                        <span class="ai-brief__cta-main">
+                          <span class="ai-brief__cta-label">继续问 AI</span>
+                          <el-icon class="ai-brief__cta-icon" :size="18"><ChatDotRound /></el-icon>
+                        </span>
+                      </button>
                     </div>
                   </div>
                   <p v-if="aiSummaryHelperText" class="ai-helper-text">{{ aiSummaryHelperText }}</p>
@@ -1439,13 +1443,12 @@ function toNumber(value: number | string | undefined | null) {
   align-items: flex-start;
 }
 
-.ai-brief__actions {
+.ai-brief__heading {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: none;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .ai-brief__top h2,
@@ -1460,6 +1463,7 @@ function toNumber(value: number | string | undefined | null) {
 .ai-generated-at {
   display: inline-flex;
   align-items: center;
+  flex: none;
   padding: 5px 9px;
   border-radius: 999px;
   background: rgba(42, 157, 153, 0.08);
@@ -1501,6 +1505,11 @@ function toNumber(value: number | string | undefined | null) {
   border-bottom: none;
 }
 
+.ai-summary-line--with-cta {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 18px;
+}
+
 .ai-summary-line__index {
   display: inline-flex;
   align-items: center;
@@ -1520,6 +1529,10 @@ function toNumber(value: number | string | undefined | null) {
   font-size: 12.5px;
   line-height: 1.5;
   color: rgba(15, 23, 42, 0.92);
+}
+
+.ai-summary-line__cta {
+  justify-self: end;
 }
 
 .ai-empty {
@@ -2319,10 +2332,6 @@ function toNumber(value: number | string | undefined | null) {
   .home-main {
     grid-template-columns: 1fr;
   }
-
-  .ai-brief__actions {
-    justify-content: flex-end;
-  }
 }
 
 @media (max-height: 900px) {
@@ -2347,7 +2356,11 @@ function toNumber(value: number | string | undefined | null) {
     margin-top: 14px;
   }
 
-  .ai-brief,
+  .ai-brief {
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
   .pdf-ai-card {
     gap: 12px;
     padding: 14px 16px;
@@ -2445,14 +2458,6 @@ function toNumber(value: number | string | undefined | null) {
   .timeline-panel,
   .state-panel {
     padding: 20px;
-  }
-
-  .ai-brief__top {
-    flex-direction: column;
-  }
-
-  .ai-brief__actions {
-    justify-content: flex-start;
   }
 
   .company-pane h1 {
